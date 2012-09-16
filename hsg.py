@@ -2,7 +2,7 @@
 
 """
 hsg.py - Phenny module to find the HSG thread in the /co/ catalog.
-Written by Tatpurusa, ported to phenny by !!c1Q
+Written by Tatpurusha, ported to phenny by !!c1Q
 (It's not very pythonic, I'm sorry)
 This is free and unencumbered software released into the public domain.
 """
