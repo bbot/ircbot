@@ -15,7 +15,7 @@ def notifier(phenny, input):
     """
     main loop
     
-    sleeps for 5500 seconds (three hours) after an update since you rarely
+    sleeps for three hours after an update since you rarely
     see two updates right after each other
     """
     time.sleep(5)
@@ -25,7 +25,7 @@ def notifier(phenny, input):
             phenny.say("UPDATE UPDATE UPDATE UPDATE UPDATE UPDATE")
             phenny.say("      http://mspaintadventures.com/")
             phenny.say("=========================================")
-            time.sleep(5500)
+            time.sleep(60 * 60 * 3)
         else:
             time.sleep(20)
 notifier.commands = ['notify']
