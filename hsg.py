@@ -56,7 +56,7 @@ def findhsg():
 def hsg(phenny, input):
     phenny.say(findhsg())
 
-hsg.commands = ['hsg']
+hsg.commands = ['hsg', 'HSG']
 hsg.priority = 'medium'
 
 if __name__ == '__main__':

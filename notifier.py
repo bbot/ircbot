@@ -6,10 +6,7 @@ Written by Mozai, ported to Phenny by !!c1Q
 This is free and unencumbered software released into the public domain.
 """
 
-import httplib
-import time
-import rfc822
-import socket
+import httplib, time, rfc822, socket
 
 def notifier(phenny, input):
     """
