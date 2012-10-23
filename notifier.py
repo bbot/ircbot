@@ -40,7 +40,7 @@ def hs_update(host='mspaintadventures.com', path='/rss/rss.xml', recent=180):
                 return True
             return False
     except socket.timeout:
-        print "Timeout" % time.asctime()
+        print "Timeout", time.asctime()
 
 if __name__ == '__main__':
     while True:
