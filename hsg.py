@@ -16,7 +16,7 @@ def findhsg():
     global cmod
     global hsglink
 
-    RSS_URL="http://boards.4chan.org/co/index.rss"
+    RSS_URL="http://catalog.neet.tv/co/feed.rss"
 
     if 'cmod' in globals():
         catalog = feedparser.parse(RSS_URL, modified=cmod)
