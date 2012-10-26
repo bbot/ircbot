@@ -4,6 +4,8 @@
 notifier.py - Phenny module to check if Homestuck's been updated
 Written by Mozai, ported to Phenny by !!c1Q
 This is free and unencumbered software released into the public domain.
+
+Use --disable-msg=W0612,W0622,W0613 to tell pylint to ignore the Phenny API stuff.
 """
 
 import httplib, time, rfc822, socket
@@ -40,7 +42,7 @@ def hs_update(host='mspaintadventures.com', path='/rss/rss.xml', recent=180):
                 return True
             return False
     except socket.timeout:
-        print "Timeout" % time.asctime()
+        print "Timeout", time.asctime()
 
 if __name__ == '__main__':
     while True:
