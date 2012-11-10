@@ -54,10 +54,7 @@ def findhsg():
     return links[0]
 
 def hsg(phenny, input):
-    if input.nick == "lmotep":
-        phenny.say("No.")
-    else:
-        phenny.say(findhsg())
+    phenny.say(findhsg())
 
 hsg.commands = ['hsg', 'HSG']
 hsg.priority = 'medium'
