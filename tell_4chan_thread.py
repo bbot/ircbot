@@ -28,11 +28,11 @@ BOARDCACHE_AGELIMIT = 60
 # which will reply with
 #   "http://4chan.org/co/res/14355 'Batman sucks' (2h 3m old) "
 
-SEARCHES = { 'hsg': { 'board':'co',  # where do I search
-                      'regexp':'hom[eo]st?uck|hamsteak', # what to look for
+SEARCHES = { 'hsg': { 'board':'co',
+                      'regexp':'(hom[eo]st?uck|hamsteak) general',
                     },
             'cgl': { 'board':'cgl',
-                     'regexp':'homestuck|vriska|nepeta',
+                     'regexp':'homestuck|vriska|nepeta|troll horns',
                    },
            }
 
@@ -44,7 +44,10 @@ THREADURL = 'https://boards.4chan.org/%s/res/%d' # (board, thread_no)
 BOARDCACHE = dict()
 
 for s in SEARCHES:
-  if not (s.isalnum and s.get('board', '').isalnum() and s.get('regexp')):
+  if not (s.isalnum 
+          and SEARCHES[s].get('board', '').isalnum() 
+          and SEARCHES[s].get('regexp')
+         ):
     raise ValueError('bad data in SEARCHES[%s]; refusing to start' % s)
   SEARCHES[s]['regexp'] = re.compile(SEARCHES[s]['regexp'], re.I)
 
@@ -69,7 +72,7 @@ def _update_boardcache(board):
           json_dict = json.loads(sock.read())
           for j in json_dict['threads'] :
             # j is the thread, ['posts'][0] is the first post in thread
-            BOARDCACHE[board]['threads'].extend(j['posts'][0])
+            BOARDCACHE[board]['threads'].append(j['posts'][0])
           sock.close()
         elif sock.code >= 400:
           # 403 denied, 404 we went beyond the catalog, or 500 server puked.
@@ -77,7 +80,7 @@ def _update_boardcache(board):
           break
     except ValueError:
       # thrown by json.loads() for a HTTP-but-not-JSON response
-      # TODO: raise an error to get a human's attention for this
+      # use phenny.error() ?  if they bothered documenting it, tabernaq
       pass
     # inserting a sleep here so I don't shoot myself in the foot later
     time.sleep(1)
@@ -86,8 +89,10 @@ def _update_boardcache(board):
 def _cmp_thread_freshness(i, j):
   """ for use in list().sort() to order threads fresh to stale
   """
-  # TODO: better heuristic.  I used to use ctime + 60 * posts + 60 * images,
-  #       but gives too much weight for threads that hit img-limit.
+  # needs a better heuristic.  I used to use
+  # ctime + 60 * posts + 60 * images
+  # but gives too much weight to threads that hit 250 img limit, 
+  # which happens every 2.3 hours for homestuck threads on /co/
   left = i['time']
   right = j['time']
   return cmp(left, right)
@@ -96,12 +101,13 @@ def _get_recent_thread(board, regexp):
   # outside hsg() so we can test it by running this on its own
   _update_boardcache(board)  # using side effects! hiss!!!
   threads = list()
-  for i in BOARDCACHE[board]['threads']:
-    thread = BOARDCACHE[board]['threads'][i]
+  for thread in BOARDCACHE[board]['threads']:
     if regexp.search(thread.get('sub','')) :
       threads.append(thread)
-    elif regexp.search(thread.get('com','')) :
-      threads.append(thread)
+  if not threads:
+    for thread in BOARDCACHE[board]['threads']:
+      if regexp.search(thread.get('com','')) :
+        threads.append(thread)
   if threads :
     threads.sort(cmp=_cmp_thread_freshness, reverse=True)
     return threads[0]
@@ -169,20 +175,10 @@ tell_4chan_thread.commands = SEARCHES.keys()
 if __name__ == '__main__':
   print "--- Testing phenny module"
   for SRCH in SEARCHES:
-    print "** %s **" & SRCH
-    print _get_recent_thread(SEARCHES[SRCH]['board'], SEARCHES[SRCH]['regexp'])
+    print "** %s **" % SRCH
+    HURP = _get_recent_thread(SEARCHES[SRCH]['board'], SEARCHES[SRCH]['regexp'])
+    DURP = THREADURL % (SEARCHES[SRCH]['board'], HURP['no'])
+    print "  [%s](%s)" % (HURP.get('sub','(no subject)'), DURP)
 
-# TODO: better heuristic to avoid fetching ALL pages for a subforum
-#       without missing out if there's a shitty positive result on page 1
-#       but the good positive result is on page 15.
-# TODO: improve _cmp_thread_freshness()
-
-# phenny loads a module, walks module.iteritems() and if it has an
-#   attribute 'commands' or 'rule', then it adds it as a hook. I can't
-#   explicitly hook nor unhook stuff.  derp?
-# also: example code uses 'input' as a function paramter, when
-#   that is already __builtin__.input() .  Derpity derp.
-# see also how phenny uses 'data.sender' two hold one of two distinct
-#   pieces of data, and you have to figure out which at runtime.
-#   hurp de-derp.
+    THREADURL = 'https://boards.4chan.org/%s/res/%d' # (board, thread_no)
 
