@@ -11,53 +11,71 @@
 import random, time
 
 # delay between utterances; always a good idea with IRC bots.
-COOLDOWN = 300
+COOLDOWN = 60 * 15 # 1: testing, 60 * 15 : normal 15 minute cooldown
 
-# collection of names
-NAMES = """Aradia Tavros Sollux Nepeta Karkat Kanaya
-           Terezi Vriska Equius Gamzee Eridan Feferi
-           John Rose Dave Jade Jane Roxy Dirk Jake
-        """
+# list() of names
+NAMES = """
+  John Rose Dave Jade
+  WV PM AR WQ
+  Aradia Tavros Sollux Nepeta Karkat Kanaya
+  Terezi Vriska Equius Gamzee Eridan Feferi
+  Slick Droog Deuce Boxcars
+  Jane Roxy Dirk Jake
+  Damara Rufioh Mituna Meulin Kankri Porrim
+  Latula Aranea Horuss Kurloz Cronus Meenah
+""".split()
 
-if isinstance(NAMES, basestring):
-  NAMES = NAMES.split()
+# "Cronus": Hussie wrote in his will, just in case he died before
+#   he could finish Homestuck, that "dualscar would never get
+#   together with someone." Even a Leijon would not dare meddle.
 
-def _make_namepair(name_l=None):
-  random.shuffle(NAMES)
-  if name_l:
-    name_l = name_l.title()
-    if not name_l in NAMES:
-      name_l = None
-  if not name_l:
-    name_l = NAMES[0]
-    name_r = NAMES[1]
-  elif name_l == NAMES[0]:
-    name_r = NAMES[1]
-  else:
-    name_r = NAMES[0]
-  return (name_l, name_r)
-
-ATIME = 0
-def crackship(phenny, data):
+def crackship(phenny, cmd_in):
   " utters a nonsense romance pairing of two characters "
-  global ATIME
   now = time.time()
-  if ATIME + COOLDOWN < now :
-    namepair = _make_namepair(data.match.group(2))
-    phenny.say("I ship %s with %s" % namepair)
-    ATIME = now
-    return True
+  self = phenny.bot.variables['crackship'] 
+  if self.atime + COOLDOWN < now :
+    random.shuffle(NAMES)
+    name_l = cmd_in.group(2)
+    if name_l and not name_l in NAMES:
+      name_l = name_l.title()
+    if not name_l in NAMES:
+      name_l = NAMES[0]
+      name_r = NAMES[1]
+    elif name_l == NAMES[0]:
+      name_r = NAMES[1]
+    else:
+      name_r = NAMES[0]
+    if name_l == 'Cronus':
+      name_r = 'nobody'
+    elif name_r == 'Cronus':
+      name_r = NAMES[2]
+    phenny.say("I ship %s with %s" % (name_l, name_r))
+    self.atime = now
+  # else:
+    # delay = self.atime + COOLDOWN - now
+    # phenny.bot.msg(cmd_in.nick,"%d second cooldown" % (delay))
 
+crackship.priority = 'medium'
+crackship.event = 'PRIVMSG'
+crackship.thread = False  # don't bother, non-blocking func call
+crackship.rule = r'.*(ship|ships|shipped) (\S+) (?:and|with) \S+'
 crackship.commands = ['ship','crackship']
-crackship.rule = r'you ship (\S+(?:\s+\S+)) (?:and|with) \S+'
+crackship.atime = 0  # better to write to func attributes than 'global'
 
 if __name__ == '__main__':
-  " so we can test this without importing to phenny "
+  # run 'python crackship.py' to test it
+  import sys
+  sys.path.extend(('.','..')) # why is this necessary?
+  from phennytest import PhennyFake, CommandInputFake
+  print "--- Testing phenny module"
+  COOLDOWN = -1
+  FAKEPHENNY = PhennyFake()
   for i in range(6):
-    namepair = _make_namepair()
-    print "I ship %s with %s" % namepair
-  namepair = _make_namepair('John')
-  print "(John) I ship %s with %s" % namepair
-  namepair = _make_namepair('Karkat')
-  print "(Karkat) I ship %s with %s" % namepair
-
+    FAKECMD = CommandInputFake('.ship')
+    crackship(FAKEPHENNY, FAKECMD)
+  print "(shipping John)   - ",
+  FAKECMD = CommandInputFake('.ship John')
+  crackship(FAKEPHENNY, FAKECMD)
+  print "(shipping Karkat) - ",
+  FAKECMD = CommandInputFake('.ship Karkat')
+  crackship(FAKEPHENNY, FAKECMD)
