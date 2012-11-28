@@ -5,14 +5,20 @@ on neet.tv This version written by Mozai for !!c1Qf, uses 4chan API
 
 This is free and unencumbered software released into the public domain.
 """
-__version__ = '20121110'
+from __future__ import division
 import time, re, json, urllib
-# I'd like to import Mozai's fourchan.py, but I have no goddamn clue
-# how phenny handles importing of local modules, so I'll copy-paste instead.
+__version__ = '20121110'
+# I'd like to import Mozai's fourchan.py, but I phenny is a bit weird about
+# importing local modules, so I'll copy-paste instead.
 
 # -- config
 # how long between people asking? (-1 means to refuse when asked.)
-COOLDOWNS = { '#farts':300, 'lmotep':-1 }
+COOLDOWNS = { 
+  '#test':2, 
+  '#farts':300, 
+  'lmotep':-1, 
+  'torridGristle':-1,
+}
 
 # what to say when refusing, and how often
 REFUSETEXT = 'No.'
@@ -24,24 +30,29 @@ BOARDCACHE_AGELIMIT = 60
 # what we can ask to look for
 #   SEARCHES = { 'bat': { board: 'co', regexp:'batman' } }
 # creates command
-#   !bat
+#   .bat
 # which will reply with
 #   "http://4chan.org/co/res/14355 'Batman sucks' (2h 3m old) "
 
-SEARCHES = { 'hsg': { 'board':'co',
-                      'regexp':'(hom[eo]st?uck|hamsteak) general',
-                    },
-            'cgl': { 'board':'cgl',
-                     'regexp':'homestuck|vriska|nepeta|troll horns',
-                   },
-           }
+SEARCHES = { 
+  'hsg': { 
+    'board':'co',
+    'regexp':'(hom[eo]st?uck|hamsteak) general',
+  },
+  'cgl': { 
+    'board':'cgl',
+    'regexp':'homestuck|vriska|nepeta|troll horns',
+  },
+}
 
 
 # -- init
-API_CATALOG = 'http://api.4chan.org/%s/%d.json' # (board, range(15))
 PAGELIMIT = 15  # catalog pages 0 to PAGELIMIT-1; smaller -> faster
+API_CATALOG = 'http://api.4chan.org/%s/%d.json' # (board, range(PAGELIMIT))
 THREADURL = 'https://boards.4chan.org/%s/res/%d' # (board, thread_no)
 BOARDCACHE = dict()
+for S in SEARCHES:
+  SEARCHES[S].setdefault('atime', 0)
 
 for s in SEARCHES:
   if not (s.isalnum 
@@ -67,16 +78,16 @@ def _update_boardcache(board):
     # cache for this board was stale, unused, or useless
     try:
       for i in range(PAGELIMIT):
-        sock = urllib.urlopen(API_CATALOG % (board, i))
-        if sock.code >= 200 and sock.code < 300:
-          json_dict = json.loads(sock.read())
+        resp = urllib.urlopen(API_CATALOG % (board, i))
+        if resp.code >= 200 and resp.code < 300:
+          json_dict = json.loads(resp.read())
           for j in json_dict['threads'] :
             # j is the thread, ['posts'][0] is the first post in thread
             BOARDCACHE[board]['threads'].append(j['posts'][0])
-          sock.close()
-        elif sock.code >= 400:
+          resp.close()
+        elif resp.code >= 400:
           # 403 denied, 404 we went beyond the catalog, or 500 server puked.
-          sock.close()
+          resp.close()
           break
     except ValueError:
       # thrown by json.loads() for a HTTP-but-not-JSON response
@@ -97,21 +108,23 @@ def _cmp_thread_freshness(i, j):
   right = j['time']
   return cmp(left, right)
 
-def _get_recent_thread(board, regexp):
+def _get_matching_threads(board, regexp):
   # outside hsg() so we can test it by running this on its own
   _update_boardcache(board)  # using side effects! hiss!!!
   threads = list()
+  # return a list of threads with matching subjects
   for thread in BOARDCACHE[board]['threads']:
-    if regexp.search(thread.get('sub','')) :
+    if regexp.search(thread.get('sub','')):
       threads.append(thread)
+  # if no matching subjects, *then* check first post text
   if not threads:
     for thread in BOARDCACHE[board]['threads']:
       if regexp.search(thread.get('com','')) :
         threads.append(thread)
-  if threads :
+  if threads:
     threads.sort(cmp=_cmp_thread_freshness, reverse=True)
-    return threads[0]
-  else :
+    return threads
+  else:
     return None
 
 def _secsToPretty(ticks=0):
@@ -128,39 +141,35 @@ def _secsToPretty(ticks=0):
   else:
     return "not very"
 
-def tell_4chan_thread(phenny, data):
+def tell_4chan_thread(phenny, cmd_in):
   " announces what is most likely the Homestuck thread "
   now = time.time()
-  cooldown = COOLDOWNS.get(data.sender)
-  # data.sender could be the message src or the destination. derp.
-  # as a command, data.group(1) is the command sans prefix
-  # as a command, data.group(2) is None or everything after command + space
-  searchconfig = SEARCHES.get(data.group(1))
-
-  if (not cooldown) or (not searchconfig):
+  cooldown = COOLDOWNS.get(cmd_in.sender)
+  searchconfig = SEARCHES.get(cmd_in.groups(0))
+  if (cooldown == None) or (searchconfig == None):
     return
+
   if cooldown < 0 :
     # negative cooldown means refuse...
     if -(cooldown) <= now :
-      phenny.msg(data.nick, REFUSETEXT)
-      # ... and tells us when we explicitly refuse again.
-      COOLDOWNS[data.nick] = -(now + REFUSECOOLDOWN)
+      # ... and refuse explictly if it's been long enough
+      phenny.reply(REFUSETEXT)
+      COOLDOWNS[cmd_in.sender] = -(now + REFUSECOOLDOWN)
     return
-  if (searchconfig.get('atime', 0) + cooldown) <= now :
+  if (searchconfig['atime'] + cooldown) > now :
+    # cooldown hasn't expired; do nothing
     return
 
-  the_thread = _get_recent_thread(searchconfig['board'], searchconfig['regexp'])
-
-  if the_thread :
+  the_threads = _get_matching_threads(searchconfig['board'], searchconfig['regexp'])
+  if the_threads :
+    the_thread = the_threads[0]
     # make URL, analyze for age & post counts
     mesg = THREADURL % (searchconfig['board'], the_thread['no'])
     # if the_thread['sub']:
     #  mesg += " \"%s\"" % the_thread['sub']
-    mesg += " ("
-    mesg += " %s old" % _secsToPretty(now - the_thread['time'])
-    mesg += " %dp" % the_thread['omitted_posts']
-    mesg += " %di" % the_thread['omitted_images']
-    mesg += ")"
+    mesg += " (%s)" % _secsToPretty(now - the_thread['time'])
+    mesg += " %dp" % the_thread['replies']
+    mesg += " %di" % the_thread['images']
     searchconfig['atime'] = now
   else:
     mesg = '...'
@@ -174,11 +183,10 @@ tell_4chan_thread.commands = SEARCHES.keys()
 
 if __name__ == '__main__':
   print "--- Testing phenny module"
+  from phennytest import PhennyFake, CommandInputFake
+  COOLDOWNS['#test'] = 0
+  FAKEPHENNY = PhennyFake()
   for SRCH in SEARCHES:
     print "** %s **" % SRCH
-    HURP = _get_recent_thread(SEARCHES[SRCH]['board'], SEARCHES[SRCH]['regexp'])
-    DURP = THREADURL % (SEARCHES[SRCH]['board'], HURP['no'])
-    print "  [%s](%s)" % (HURP.get('sub','(no subject)'), DURP)
-
-    THREADURL = 'https://boards.4chan.org/%s/res/%d' # (board, thread_no)
-
+    FAKECMD = CommandInputFake('.'+SRCH)
+    tell_4chan_thread(FAKEPHENNY, FAKECMD)
