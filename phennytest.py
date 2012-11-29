@@ -5,28 +5,56 @@ example:
 
 if __name__ == '__main__':
   import sys
-  sys.path.append('.')  # why is this not default?
-  sys.path.append('..') # in case phenny/modules/ is pwd
+  sys.path.extend(('.','..')) # so we can find phennytest
   from phennytest import PhennyFake, CommandInputFake
   PHENNYFAKE = PhennyFake()
   CMDFAKE = CommandInputFake('.wub a dub dub')
   wub(PHENNYFAKE, CMDFAKE)
 
 """
-import re
+import sys, re
 
+class ConfigFake():
+  " fakes the module created by importing ~/.phenny/phenny.conf "
+  def __init__(self):
+    self.nick = 'botnick'
+    self.name = 'Phenny Palmersbot,'
+    self.channels = ['#test']
+    self.password = None
+    self.owner = 'botowner'
+    self.admins = [self.owner, 'botadmin']
+    self.prefix = r'\.'
+    
 class PhennyFake(object):
   " use in place of PhennyWrapped "
   @staticmethod
   def say(mmm): 
-    "send message back to where command came from"
     print mmm
-    return
   @staticmethod
   def reply(mmm):
-    "send message back to who issued the command"
-    print mmm
-    return
+    PhennyFake.say("nick: "+mmm)
+  @staticmethod
+  def write(args, trailing=None):
+    mesg = ': '+' '.join(args)
+    if trailing:
+      mesg += ' :'+trailing
+    print mesg
+  @staticmethod
+  def msg(destination, text):
+    PhennyFake.write(('PRIVMSG', destination), text)
+  @staticmethod
+  def log(mesg):
+    sys.stderr.write(mesg)
+  def __init__(self, config=None):
+    if not config:
+      config = ConfigFake()
+    if not hasattr(config,'prefix') or not config.prefix :
+      config.prefix = r'\.'
+    self.config = config
+    self.doc = {}
+    self.stats = {}
+    self.variables = {}
+    self.stack = list()
 
 class CommandInputFake(unicode):
   " use in place of CommandInput "

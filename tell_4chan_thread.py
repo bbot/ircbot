@@ -7,25 +7,27 @@ This is free and unencumbered software released into the public domain.
 """
 from __future__ import division
 import time, re, json, urllib
-__version__ = '20121110'
+__version__ = '20121128'
 # I'd like to import Mozai's fourchan.py, but I phenny is a bit weird about
 # importing local modules, so I'll copy-paste instead.
 
 # -- config
-# how long between people asking? (-1 means to refuse when asked.)
+# how long between people asking? (0 means ignore, <0 means refuse)
 COOLDOWNS = { 
-  '#test':2, 
+  '#test':15, 
   '#farts':300, 
-  'lmotep':-1, 
-  'torridGristle':-1,
+  'lmotep':-1,
 }
 
-# what to say when refusing, and how often
-REFUSETEXT = 'No.'
-REFUSECOOLDOWN = 60
+# how many catalog pages to fetch. smaller -> faster, 
+# but risk missing threads that are sinking.
+PAGELIMIT = 10
 
-# how many seconds to cache a 4chan board's catalog
-BOARDCACHE_AGELIMIT = 60
+# what to say when refusing
+REFUSETEXT = 'No.'
+
+# how many seconds to cache 4chan data; moot said 10 seconds at least.
+CACHE_AGELIMIT = 60
 
 # what we can ask to look for
 #   SEARCHES = { 'bat': { board: 'co', regexp:'batman' } }
@@ -47,13 +49,14 @@ SEARCHES = {
 
 
 # -- init
-PAGELIMIT = 15  # catalog pages 0 to PAGELIMIT-1; smaller -> faster
 API_CATALOG = 'http://api.4chan.org/%s/%d.json' # (board, range(PAGELIMIT))
+API_THREAD = 'http://api.4chan.org/%s/res/%d.json' # (board, thread_no)
 THREADURL = 'https://boards.4chan.org/%s/res/%d' # (board, thread_no)
 BOARDCACHE = dict()
+THREADCACHE = dict()
+
 for S in SEARCHES:
   SEARCHES[S].setdefault('atime', 0)
-
 for s in SEARCHES:
   if not (s.isalnum 
           and SEARCHES[s].get('board', '').isalnum() 
@@ -63,16 +66,16 @@ for s in SEARCHES:
   SEARCHES[s]['regexp'] = re.compile(SEARCHES[s]['regexp'], re.I)
 
 
-def _update_boardcache(board):
-  " refresh the data in BOARDCACHE if necessary "
+def _get_threads(board):
+  " returns a list() of posts that start each thread on a 4chan board "
   if ((not board.isalnum()) or (len(board) > 3)) :
     raise ValueError("%s doesn't look like a valid 4chan board id" % board)
   if not BOARDCACHE.get(board):
-    BOARDCACHE[board] = { 'mtime':0 }
+    BOARDCACHE[board] = { 'mtime':0, 'threads':list() }
   now = time.time()
-  for i in BOARDCACHE:
+  for i in BOARDCACHE.keys():
     # garbage collection
-    if ((BOARDCACHE[i]['mtime'] + BOARDCACHE_AGELIMIT) <= now ):
+    if ((BOARDCACHE[i]['mtime'] + CACHE_AGELIMIT) <= now ):
       BOARDCACHE[i]['threads'] = list()
   if len(BOARDCACHE[board]['threads']) == 0 :
     # cache for this board was stale, unused, or useless
@@ -91,41 +94,68 @@ def _update_boardcache(board):
           break
     except ValueError:
       # thrown by json.loads() for a HTTP-but-not-JSON response
-      # use phenny.error() ?  if they bothered documenting it, tabernaq
+      # usually safe to ignore; mostly don't want to scare the normals
+      # with the shout-out from phenny.bot.error()
       pass
-    # inserting a sleep here so I don't shoot myself in the foot later
-    time.sleep(1)
-  return len(BOARDCACHE[board]['threads'])
+  return BOARDCACHE[board]['threads']
 
 def _cmp_thread_freshness(i, j):
-  """ for use in list().sort() to order threads fresh to stale
-  """
-  # needs a better heuristic.  I used to use
+  " for use in list().sort() to order threads fresh to stale "
+  # needs a better heuristic that DOES NOT download every freaking
+  # post of every freaking thread.  I used to use:
   # ctime + 60 * posts + 60 * images
-  # but gives too much weight to threads that hit 250 img limit, 
+  # but this gives too much weight to threads that hit 250 img limit, 
   # which happens every 2.3 hours for homestuck threads on /co/
   left = i['time']
   right = j['time']
   return cmp(left, right)
+    
+def _get_posts(board, thread_no):
+  "given a 4chan subforum id & thread #, fetches list of post dict()"
+  if not board.isalnum():
+    raise ValueError("'%s' is not a valid 4chan subforum" % board)
+  try:
+    thread_no = int(thread_no)
+  except ValueError:
+    raise ValueError("'%s' is not a valid thread id number" % thread_no)
+  now = time.time()
+  thread_id = "%s/%s" % (board, thread_no)
+  for i in THREADCACHE.keys():
+    # garbage collection
+    if ((THREADCACHE[i]['mtime'] + CACHE_AGELIMIT) <= now ):
+      del(THREADCACHE[i])
+  if thread_id not in THREADCACHE :
+    THREADCACHE[thread_id] = { 'posts': None, 'mtime': 0 }
+    posts = list()
+    sock = urllib.urlopen(API_THREAD % (board, thread_no))
+    try:
+      if sock.code >= 200 and sock.code < 300 :
+        json_dict = json.loads(sock.read())
+        posts = json_dict['posts']
+    except ValueError:
+      pass # return empty list if we got a non-JSON response
+    sock.close()
+    # start posts-per-minute and images-per-minute
+    ptimes = list()
+    itimes = list()
+    for post in posts:
+      post.setdefault('board', board)
+      if post.get('time'):
+        ptimes.append(post['time'])
+        if post.get('filename'):
+          itimes.append(post['time'])
+    cent = int(len(ptimes)*.1)
+    centage = ((now - ptimes[-cent]) // 60)
+    if centage :
+      posts[0]['ppm'] = (cent/centage)
+    cent = int(len(itimes)*.1)
+    centage = ((now - itimes[-cent]) // 60)
+    if centage :
+      posts[0]['ipm'] = (cent/centage)
+    THREADCACHE[thread_id] = { 'posts':posts, 'mtime': now }
 
-def _get_matching_threads(board, regexp):
-  # outside hsg() so we can test it by running this on its own
-  _update_boardcache(board)  # using side effects! hiss!!!
-  threads = list()
-  # return a list of threads with matching subjects
-  for thread in BOARDCACHE[board]['threads']:
-    if regexp.search(thread.get('sub','')):
-      threads.append(thread)
-  # if no matching subjects, *then* check first post text
-  if not threads:
-    for thread in BOARDCACHE[board]['threads']:
-      if regexp.search(thread.get('com','')) :
-        threads.append(thread)
-  if threads:
-    threads.sort(cmp=_cmp_thread_freshness, reverse=True)
-    return threads
-  else:
-    return None
+  return THREADCACHE[thread_id]['posts']
+
 
 def _secsToPretty(ticks=0):
   " given ticks as a duration in seconds, convert it to human-friendly units "
@@ -142,34 +172,57 @@ def _secsToPretty(ticks=0):
     return "not very"
 
 def tell_4chan_thread(phenny, cmd_in):
-  " announces what is most likely the Homestuck thread "
+  " announces a thread from one of the pre-defined searches "
   now = time.time()
   cooldown = COOLDOWNS.get(cmd_in.sender)
-  searchconfig = SEARCHES.get(cmd_in.groups(0))
+  searchconfig = SEARCHES.get(cmd_in.group(1))
+  
   if (cooldown == None) or (searchconfig == None):
     return
-
   if cooldown < 0 :
-    # negative cooldown means refuse...
-    if -(cooldown) <= now :
-      # ... and refuse explictly if it's been long enough
-      phenny.reply(REFUSETEXT)
-      COOLDOWNS[cmd_in.sender] = -(now + REFUSECOOLDOWN)
+    phenny.bot.msg(cmd_in.nick, REFUSETEXT)
     return
-  if (searchconfig['atime'] + cooldown) > now :
+  elif cooldown == 0:
+    return
+  elif (searchconfig['atime'] + cooldown) > now :
     # cooldown hasn't expired; do nothing
     return
+  searchconfig['atime'] = now
+  
+  board = searchconfig['board']
+  regexp = searchconfig['regexp']
+  all_threads = _get_threads(board)
+  good_threads = list()
+  for thread in all_threads:
+    # first check the subjects
+    if regexp.search(thread.get('sub','')):
+      good_threads.append(thread)
+  if not good_threads:
+    # only if no matching subjects, check first post's comment
+    for thread in BOARDCACHE[board]['threads']:
+      if regexp.search(thread.get('com','')) :
+        good_threads.append(thread)
 
-  the_threads = _get_matching_threads(searchconfig['board'], searchconfig['regexp'])
-  if the_threads :
-    the_thread = the_threads[0]
-    # make URL, analyze for age & post counts
-    mesg = THREADURL % (searchconfig['board'], the_thread['no'])
-    # if the_thread['sub']:
-    #  mesg += " \"%s\"" % the_thread['sub']
-    mesg += " (%s)" % _secsToPretty(now - the_thread['time'])
-    mesg += " %dp" % the_thread['replies']
-    mesg += " %di" % the_thread['images']
+  if good_threads :
+    good_threads.sort(cmp=_cmp_thread_freshness)
+    the_thread = good_threads[0]
+    threadurl = THREADURL % (board, the_thread['no'])
+    # -- start time-expensive bit 
+    # ceequof might wish to disable it
+    the_posts = _get_posts(board, the_thread['no'])
+    the_thread['ppm'] = the_posts[0].get('ppm')
+    the_thread['ipm'] = the_posts[0].get('ipm')
+    # -- end time-expensive bit
+    mesg = threadurl
+    mesg += " \"%s\"" % the_thread.get('sub',"")
+    mesg += " (%s)" % (_secsToPretty(now - the_thread['time']))
+    mesg += " %dp" % (the_thread.get('replies', 0) + 1)
+    mesg += " %di" % (the_thread.get('images', 0) + 1)
+    if the_thread.get('bans', 0) > 0 :
+      # \x0305: mIRC colour code for red foreground
+      mesg += " \x0305 %d bans\x03" % (the_thread['bans'])
+    if the_thread.get('ppm') and the_thread['ppm'] > 0.1 :
+      mesg += "; %.1f ppm" % the_thread['ppm']
     searchconfig['atime'] = now
   else:
     mesg = '...'
@@ -178,15 +231,16 @@ def tell_4chan_thread(phenny, cmd_in):
   phenny.say(mesg)
 
 tell_4chan_thread.priority = 'medium'
+tell_4chan_thread.thread = True  # I might block on net i/o
 tell_4chan_thread.commands = SEARCHES.keys()
 
 
-if __name__ == '__main__':
-  print "--- Testing phenny module"
-  from phennytest import PhennyFake, CommandInputFake
-  COOLDOWNS['#test'] = 0
-  FAKEPHENNY = PhennyFake()
-  for SRCH in SEARCHES:
-    print "** %s **" % SRCH
-    FAKECMD = CommandInputFake('.'+SRCH)
-    tell_4chan_thread(FAKEPHENNY, FAKECMD)
+# if __name__ == '__main__':
+#  print "--- Testing phenny module"
+#  from phennytest import PhennyFake, CommandInputFake
+#  COOLDOWNS['#test'] = 0
+#  FAKEPHENNY = PhennyFake()
+#  for SRCH in SEARCHES:
+#    print "** %s **" % SRCH
+#    FAKECMD = CommandInputFake('.'+SRCH)
+#    tell_4chan_thread(FAKEPHENNY, FAKECMD)
