@@ -56,8 +56,9 @@ def findhsg():
 def hsg(phenny, input):
     phenny.say(findhsg())
 
-hsg.commands = ['hsg', 'HSG']
-hsg.priority = 'medium'
+# 2012-11-10: disabling, to be replaced by tell_4chan_thread.py -Mozai.
+#hsg.commands = ['hsg', 'HSG']
+#hsg.priority = 'medium'
 
 if __name__ == '__main__':
     print findhsg()
