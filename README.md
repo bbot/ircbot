@@ -10,13 +10,11 @@ modules here are:
 * **notifier.py** : checks a website every so often, utters an
   announcement with url when the website updates.
 * **crackship.py** : slightly more complicated example of a phenny module.
-  Listens for '!ship' or '!ship name', and utters 'I ship name and name'
+  Listens for '.ship' or '.ship name', and utters 'I ship name and name'
   from a list of names configured in the module
   (it doesn't ship Cronus with anyone; this is not a bug, but a feature.)
-* **hsg.py** : *(depricated)* checks catalog.neet.tv/co/ for what should
-  be the 4chan conversation thread currently discussing Homestuck.
-* **tell_4chan_thread.py** : uses the 4chan API to search through any
-  subforum for threads starting with keywords. (commands: !hsg, !cgl )
+* **hsg.py** : uses the 4chan API to search through any
+  subforum for threads starting with keywords. (commands: .hsg, .cgl )
 
 Please read phenny\_module\_howto.md and examine the existing modules
 if you wish to make your own.
