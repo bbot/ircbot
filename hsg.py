@@ -1,64 +1,246 @@
-#!/usr/bin/env python
-
 """
-hsg.py - Phenny module to find the HSG thread in the /co/ catalog.
-Written by Tatpurusha, ported to phenny by !!c1Q
-(It's not very pythonic, I'm sorry)
+Phenny module to find the most likely thread asked for in 4chan
+subforums. First version was written by Tatpurusha for !!c1Qf, depended
+on neet.tv This version written by Mozai for !!c1Qf, uses 4chan API
+
 This is free and unencumbered software released into the public domain.
 """
-import feedparser
+from __future__ import division
+import time, re, json, urllib
+__version__ = '20121128'
+# I'd like to import Mozai's fourchan.py, but I phenny is a bit weird about
+# importing local modules, so I'll copy-paste instead.
 
-global cmod
-global hsglink
+# -- config
+# how long between people asking? (0 means ignore, <0 means refuse)
+COOLDOWNS = { 
+  '#test':15, 
+  '#farts':300, 
+  'lmotep':-1,
+}
 
-def findhsg():
-    """fetches the rss, looks for some strings"""
-    global cmod
-    global hsglink
+# how many catalog pages to fetch. smaller -> faster, 
+# but risk missing threads that are sinking.
+PAGELIMIT = 10
 
-    RSS_URL="http://catalog.neet.tv/co/feed.rss"
+# what to say when refusing
+REFUSETEXT = 'No.'
 
-    if 'cmod' in globals():
-        catalog = feedparser.parse(RSS_URL, modified=cmod)
-    else:
-        catalog = feedparser.parse(RSS_URL)
-    links = []
-    cmod=catalog.modified
-    #print catalog.status
+# how many seconds to cache 4chan data; moot said 10 seconds at least.
+CACHE_AGELIMIT = 60
 
-    for item in catalog["items"]:
-        if "homestuck general" in item["title"].lower():
-            links.append(item["link"])
+# what we can ask to look for
+#   SEARCHES = { 'bat': { board: 'co', regexp:'batman' } }
+# creates command
+#   .bat
+# which will reply with
+#   "http://4chan.org/co/res/14355 'Batman sucks' (2h 3m old) "
 
-    for item in catalog["items"]:
-        if "hsg" in item["title"].lower():
-            links.append(item["link"])
+SEARCHES = { 
+  'hsg': { 
+    'board':'co',
+    'regexp':'(hom[eo]st?uck|hamsteak) general',
+  },
+  'cgl': { 
+    'board':'cgl',
+    'regexp':'homestuck|vriska|nepeta|troll horns',
+  },
+}
 
-    for item in catalog["items"]:
-        if "homestuck general" in item["summary"].lower():
-            links.append(item["link"])
 
-    for item in catalog["items"]:
-        if "homestuck" in item["title"].lower():
-            links.append(item["link"])
+# -- init
+API_CATALOG = 'http://api.4chan.org/%s/%d.json' # (board, range(PAGELIMIT))
+API_THREAD = 'http://api.4chan.org/%s/res/%d.json' # (board, thread_no)
+THREADURL = 'https://boards.4chan.org/%s/res/%d' # (board, thread_no)
+BOARDCACHE = dict()
+THREADCACHE = dict()
 
-    for item in catalog["items"]:
-        if "homestuck" in item["summary"].lower():
-            links.append(item["link"])
+for S in SEARCHES:
+  SEARCHES[S].setdefault('atime', 0)
+for s in SEARCHES:
+  if not (s.isalnum 
+          and SEARCHES[s].get('board', '').isalnum() 
+          and SEARCHES[s].get('regexp')
+         ):
+    raise ValueError('bad data in SEARCHES[%s]; refusing to start' % s)
+  SEARCHES[s]['regexp'] = re.compile(SEARCHES[s]['regexp'], re.I)
 
-    if len(links) > 0:
-        hsglink=links[0]
-    else:
-        links.append(hsglink)
 
-    return links[0]
+def _get_threads(board):
+  " returns a list() of posts that start each thread on a 4chan board "
+  if ((not board.isalnum()) or (len(board) > 3)) :
+    raise ValueError("%s doesn't look like a valid 4chan board id" % board)
+  if not BOARDCACHE.get(board):
+    BOARDCACHE[board] = { 'mtime':0, 'threads':list() }
+  now = time.time()
+  for i in BOARDCACHE.keys():
+    # garbage collection
+    if ((BOARDCACHE[i]['mtime'] + CACHE_AGELIMIT) <= now ):
+      BOARDCACHE[i]['threads'] = list()
+  if len(BOARDCACHE[board]['threads']) == 0 :
+    # cache for this board was stale, unused, or useless
+    try:
+      for i in range(PAGELIMIT):
+        resp = urllib.urlopen(API_CATALOG % (board, i))
+        if resp.code >= 200 and resp.code < 300:
+          json_dict = json.loads(resp.read())
+          for j in json_dict['threads'] :
+            # j is the thread, ['posts'][0] is the first post in thread
+            BOARDCACHE[board]['threads'].append(j['posts'][0])
+          resp.close()
+        elif resp.code >= 400:
+          # 403 denied, 404 we went beyond the catalog, or 500 server puked.
+          resp.close()
+          break
+    except ValueError:
+      # thrown by json.loads() for a HTTP-but-not-JSON response
+      # usually safe to ignore; mostly don't want to scare the normals
+      # with the shout-out from phenny.bot.error()
+      pass
+  return BOARDCACHE[board]['threads']
 
-def hsg(phenny, input):
-    phenny.say(findhsg())
+def _cmp_thread_freshness(i, j):
+  " for use in list().sort() to order threads fresh to stale "
+  # needs a better heuristic that DOES NOT download every freaking
+  # post of every freaking thread.  I used to use:
+  # ctime + 60 * posts + 60 * images
+  # but this gives too much weight to threads that hit 250 img limit, 
+  # which happens every 2.3 hours for homestuck threads on /co/
+  left = i['time']
+  right = j['time']
+  return cmp(left, right)
+    
+def _get_posts(board, thread_no):
+  "given a 4chan subforum id & thread #, fetches list of post dict()"
+  if not board.isalnum():
+    raise ValueError("'%s' is not a valid 4chan subforum" % board)
+  try:
+    thread_no = int(thread_no)
+  except ValueError:
+    raise ValueError("'%s' is not a valid thread id number" % thread_no)
+  now = time.time()
+  thread_id = "%s/%s" % (board, thread_no)
+  for i in THREADCACHE.keys():
+    # garbage collection
+    if ((THREADCACHE[i]['mtime'] + CACHE_AGELIMIT) <= now ):
+      del(THREADCACHE[i])
+  if thread_id not in THREADCACHE :
+    THREADCACHE[thread_id] = { 'posts': None, 'mtime': 0 }
+    posts = list()
+    sock = urllib.urlopen(API_THREAD % (board, thread_no))
+    try:
+      if sock.code >= 200 and sock.code < 300 :
+        json_dict = json.loads(sock.read())
+        posts = json_dict['posts']
+    except ValueError:
+      pass # return empty list if we got a non-JSON response
+    sock.close()
+    # start posts-per-minute and images-per-minute
+    ptimes = list()
+    itimes = list()
+    for post in posts:
+      post.setdefault('board', board)
+      if post.get('time'):
+        ptimes.append(post['time'])
+        if post.get('filename'):
+          itimes.append(post['time'])
+    cent = int(len(ptimes)*.1)
+    centage = ((now - ptimes[-cent]) // 60)
+    if centage :
+      posts[0]['ppm'] = (cent/centage)
+    cent = int(len(itimes)*.1)
+    centage = ((now - itimes[-cent]) // 60)
+    if centage :
+      posts[0]['ipm'] = (cent/centage)
+    THREADCACHE[thread_id] = { 'posts':posts, 'mtime': now }
 
-# 2012-11-10: disabling, to be replaced by tell_4chan_thread.py -Mozai.
-#hsg.commands = ['hsg', 'HSG']
-#hsg.priority = 'medium'
+  return THREADCACHE[thread_id]['posts']
 
-if __name__ == '__main__':
-    print findhsg()
+
+def _secsToPretty(ticks=0):
+  " given ticks as a duration in seconds, convert it to human-friendly units "
+  day, remain    = divmod(ticks, (24*60*60))
+  hour, remain   = divmod(remain, (60*60))
+  minute, second = divmod(remain, 60)
+  if (day > 0):
+    return "%dd %dh" % (day, hour)
+  elif (hour > 0):
+    return "%dh %dm" % (hour, minute)
+  elif (minute > 0):
+    return "%dm %ds" % (minute, second)
+  else:
+    return "not very"
+
+def tell_4chan_thread(phenny, cmd_in):
+  " announces a thread from one of the pre-defined searches "
+  now = time.time()
+  cooldown = COOLDOWNS.get(cmd_in.sender)
+  searchconfig = SEARCHES.get(cmd_in.group(1))
+  
+  if (cooldown == None) or (searchconfig == None):
+    return
+  if cooldown < 0 :
+    phenny.bot.msg(cmd_in.nick, REFUSETEXT)
+    return
+  elif cooldown == 0:
+    return
+  elif (searchconfig['atime'] + cooldown) > now :
+    # cooldown hasn't expired; do nothing
+    return
+  searchconfig['atime'] = now
+  
+  board = searchconfig['board']
+  regexp = searchconfig['regexp']
+  all_threads = _get_threads(board)
+  good_threads = list()
+  for thread in all_threads:
+    # first check the subjects
+    if regexp.search(thread.get('sub','')):
+      good_threads.append(thread)
+  if not good_threads:
+    # only if no matching subjects, check first post's comment
+    for thread in BOARDCACHE[board]['threads']:
+      if regexp.search(thread.get('com','')) :
+        good_threads.append(thread)
+
+  if good_threads :
+    good_threads.sort(cmp=_cmp_thread_freshness)
+    the_thread = good_threads[0]
+    threadurl = THREADURL % (board, the_thread['no'])
+    # -- start time-expensive bit 
+    # ceequof might wish to disable it
+    the_posts = _get_posts(board, the_thread['no'])
+    the_thread['ppm'] = the_posts[0].get('ppm')
+    the_thread['ipm'] = the_posts[0].get('ipm')
+    # -- end time-expensive bit
+    mesg = threadurl
+    mesg += " \"%s\"" % the_thread.get('sub',"")
+    mesg += " (%s)" % (_secsToPretty(now - the_thread['time']))
+    mesg += " %dp" % (the_thread.get('replies', 0) + 1)
+    mesg += " %di" % (the_thread.get('images', 0) + 1)
+    if the_thread.get('bans', 0) > 0 :
+      # \x0305: mIRC colour code for red foreground
+      mesg += " \x0305 %d bans\x03" % (the_thread['bans'])
+    if the_thread.get('ppm') and the_thread['ppm'] > 0.1 :
+      mesg += "; %.1f ppm" % the_thread['ppm']
+    searchconfig['atime'] = now
+  else:
+    mesg = '...'
+    # force ignoring for a while; 10 seconds is m00t's idea from the API
+    searchconfig['atime'] = now - cooldown + 10
+  phenny.say(mesg)
+
+tell_4chan_thread.priority = 'medium'
+tell_4chan_thread.thread = True  # I might block on net i/o
+tell_4chan_thread.commands = SEARCHES.keys()
+
+
+# if __name__ == '__main__':
+#  print "--- Testing phenny module"
+#  from phennytest import PhennyFake, CommandInputFake
+#  COOLDOWNS['#test'] = 0
+#  FAKEPHENNY = PhennyFake()
+#  for SRCH in SEARCHES:
+#    print "** %s **" % SRCH
+#    FAKECMD = CommandInputFake('.'+SRCH)
+#    tell_4chan_thread(FAKEPHENNY, FAKECMD)
