@@ -15,7 +15,7 @@ __version__ = '20121128'
 # how long between people asking? (0 means ignore, <0 means refuse)
 COOLDOWNS = { 
   '#test':15, 
-  '#farts':300, 
+  '#farts':200, 
   'lmotep':-1,
 }
 
