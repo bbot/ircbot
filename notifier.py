@@ -200,7 +200,7 @@ def _secsToPretty(ticks=0):
 def tell_last_update(phenny, cmd_in):
   " utters the last mtime of a known site "
   now = time.mktime(time.gmtime(time.time()))
-  self = phenny.bot.variables['crackship']
+  self = phenny.bot.variables['tell_last_update']
   who = cmd_in.nick 
   site = SITES[cmd_in.group(1)]
   if site['atime'] <= 0 :
