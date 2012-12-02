@@ -169,6 +169,22 @@ it could cause collisions.  Instead, add another attribute to the
 function alongsite the ones mentioned above, and get/set it via 
 `phenny.bot.variables['*funcname*'].*attrib*` . 
 
+## step 6 ##
+
+Bonus!  If the module has a function called 'setup(phenny)', it will
+be launched right after the module is imported.  Beware that sometimes
+it will be passed the real Phenny instance, and sometimes, like if
+it's being reloaded, a PhennyWrapper.  Use the following to make sure
+you always have the real deal:
+
+    if hasattr(phenny, 'bot') :
+      phenny = phenny.bot
+
+The setup(phenny) function is good for starting threads if you want
+your bot to monitor something outside IRC, like a website-update
+notifier bot, or maybe a twitter gateway.  See the 'threadtest.py'
+module that you should be able to find with this document.
+
 Example module
 --------------
 
@@ -210,4 +226,4 @@ Example module
     crackship.thread = False # no need, doesn't block on i/o
     crackship.rule = r'.*(ship|ships|shipped) (\S+) (?:and|with) \S+'
     crackship.commands = ['ship','crackship']
-    crackship.atime = 0  # better to use func attributes than 'global'
+    crackship.atime = 0  # better to use func attribs than 'global'
