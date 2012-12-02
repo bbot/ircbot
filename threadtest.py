@@ -25,6 +25,18 @@ def threadtest_stop(phenny, cmd_in):
 
 threadtest_stop.commands = ['threadteststop','ttstop']
 
+def url_notify_start(phenny, cmd_in):
+  " re-runs setup() unless there's already a thread running "
+  del(cmd_in) # shut up pylint
+  if phenny.bot.threadtest_name :
+    phenny.say('already running (%s)' % phenny.bot.threadtest_name)
+  else:
+    phenny.say('restarting loop')
+    setup(phenny.bot)
+
+url_notify_start.commands = ['threadteststart','startthreadtest']
+
+
 def setup(phenny):
   " starts loopy() "
   # Sometimes I get the realy Phenny instance,
