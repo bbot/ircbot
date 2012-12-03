@@ -5,7 +5,8 @@ verber.py - Performs actions
 
 Reads a line from actions.txt, replaces {1} with the target, and prints it in the channel as an emote.
 
-Includes a 10 minute timeout to prevent abuse. Requires the phenny.action() method from PinkiePyBot: https://github.com/JordanKinsley/PinkiePyBot/blob/master/irc.py#L202
+Includes a 10 minute timeout to prevent abuse. Requires the phenny.action() method from PinkiePyBot: 
+https://github.com/JordanKinsley/PinkiePyBot/blob/master/irc.py#L202
 
 This is free and unencumbered software released into the public domain.
 """
