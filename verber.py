@@ -25,7 +25,7 @@ def random_line(afile):
 
 def verber(phenny, input):
     global timeout #This accesses the timeout variable declared outside of local scope.
-                    #This number actually does persist between invocations. You wouldn't think so, but it does.
+                   #This number actually does persist between invocations. You wouldn't think so, but it does.
     nick = input.nick
     now = time.time()
     if (timeout < now):                 #if the timeout is in the past...
