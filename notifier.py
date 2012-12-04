@@ -11,6 +11,11 @@ import httplib, time, re, rfc822, threading, urllib
 # this number anyways.
 LOOPDELAY = 30
 
+# after detecting the URL's Last-Modified time has changed, how many
+# checks should be skipped before we start checking again?
+# this will be ( SITES[site]['delay'] * LOOPS_SKIPPED ) seconds.
+LOOPS_SKIPPED = 10
+
 # timeout between command responses
 # bots shouldn't spam, even when asked to
 TELLDELAY = 60
@@ -59,10 +64,10 @@ for SITE in SITES:
     # set defaults
     SITES[SITE]['mtime'] = 0
     SITES[SITE]['atime'] = 0
-    SITES[SITE].setdefault('delay', LOOPDELAY)
-    if SITES[SITE]['delay'] < LOOPDELAY:
-        SITES[SITE]['delay'] = LOOPDELAY
+    SITES[SITE]['alert'] = False
     SITES[SITE].setdefault('name', SITE)
+    SITES[SITE].setdefault('delay', LOOPDELAY)
+    SITES[SITE]['delay_boost'] = 0
     SITES[SITE].setdefault('mesg', "\x02%s has updated\x02" % SITES[SITE]['name'])
 
 def notify_owner(phenny, mesg):
@@ -80,8 +85,14 @@ def notify_owner(phenny, mesg):
 def _update_siterecord(site):
     " update the SITES dict() if desired. may throw socket.timeout "
     # I packaged this into a seperate function to please pylint & PEP8
-    now = time.mktime(time.gmtime(time.time()))
+    # This isn't thread-safe; would be better to get a lock on SITES[site]
+    # while I'm doing the update, but there *shouldn't* be multiple
+    # threads checking URLs for update.  ... *shouldn't*
     url = site['url']
+    now = time.mktime(time.gmtime(time.time())) # now BEFORE check
+    if (site['atime'] + site['delay'] + site['delay_boost'] > now):
+        # too soon to check again
+        return None
     if isinstance(url, (list, tuple)):
         # it's a chain
         url = site['url'][0]
@@ -103,6 +114,7 @@ def _update_siterecord(site):
                 url = None
                 break
     if url :
+        site['delay_boost'] = 0 # resume normal schedule
         (host, path) = urllib.splithost(urllib.splittype(url)[1])
         connect = httplib.HTTPConnection(host, timeout=2)
         connect.request("HEAD", path)
@@ -114,22 +126,31 @@ def _update_siterecord(site):
         if mtime == None :
             site['url'] = None # skip checking from now on
             raise Exception('site %s doesnt use Last-Modified headers (%s)' % (site['name'], url))
-        site['mtime'] = time.mktime(rfc822.parsedate(mtime))
-        site['atime'] = now
+        new_mtime = time.mktime(rfc822.parsedate(mtime))
+        if site['mtime'] == 0:
+            # we haven't checked yet
+            site['mtime'] = new_mtime
+        if new_mtime != site['mtime'] :
+            # this also catches it if the URL's Last-Modified jumped backwards
+            site['alert'] = True
+            if site['delay'] < 60*60 :
+                # if site delay is less than an hour, skip the next few checks
+                site['delay_boost'] = site['delay'] * LOOPS_SKIPPED
+            site['mtime'] = new_mtime
+        site['atime'] = time.mktime(time.gmtime(time.time())) # now AFTER check
         return url
 
 def url_notify_loop(phenny):
     " update SITES cache; if they changed recently carp about it "
     my_thread_name = threading.current_thread().name
     while phenny.notify_threadname == my_thread_name :
-        now = time.mktime(time.gmtime(time.time()))
         for sitekey in SITES:
             if not phenny.notify_threadname == my_thread_name :
                 break
             try:
                 site = SITES[sitekey]
                 _update_siterecord(site)
-                if (site['mtime'] + site['delay']) >= now :
+                if site['alert'] :
                     if 'dest' in site:
                         targets = site['dest']
                     else:
@@ -137,7 +158,8 @@ def url_notify_loop(phenny):
                     for dest in targets:
                         for line in site['mesg'].split("\n") :
                             phenny.msg(dest, line)
-            except Exception:
+                    site['alert'] = False # alert no longer pending
+            except:
                 # this next ugly piece of crap is so I can
                 # properly do an exception the Phenny-way without
                 # annoying everyone on every channel
