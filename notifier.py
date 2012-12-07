@@ -35,9 +35,9 @@ SITES = {
   'update' : {
     'name': 'MSPA',
     'url' : 'http://mspaintadventures.com/rss/rss.xml',
-    'mesg': '===== ====== UPDATE UPDATE ====== =====\n' +
-            '==== http://mspaintadventures.com/ ====\n' +
-            '===== ====== UPDATE UPDATE ====== =====\n'
+    'mesg': '======= ======= UPDATE UPDATE ======= =======\n' +
+            '======= http://mspaintadventures.com/ =======\n' +
+            '======= ======= UPDATE UPDATE ======= =======\n'
   },
   'sbahj' : {
     'name': 'SBaHJ',
