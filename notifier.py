@@ -101,9 +101,13 @@ def _update_siterecord(site):
             regexp = re.compile(step)
             (host, path) = urllib.splithost(urllib.splittype(url)[1])
             # using httplib so I can have 'timeout' that isn't in urllib.
-            conn = httplib.HTTPConnection(host, timeout=3)
-            conn.request('GET', path)
-            response = conn.getresponse()
+            try:
+                conn = httplib.HTTPConnection(host, timeout=3)
+                conn.request('GET', path)
+                response = conn.getresponse()
+            except Exception as err:
+                site['delay_boost'] = 300
+                raise Exception('site %s get %s failed: %s' % (site['name'], url, repr(err)))
             if (response.status >= 300 and response.status < 400):
                 site['url'] = None # skip checking from now on
                 raise Exception('site %s should use url %s' % (site['name'], response.getheader('Location')))
@@ -117,9 +121,13 @@ def _update_siterecord(site):
     if url :
         site['delay_boost'] = 0 # resume normal schedule
         (host, path) = urllib.splithost(urllib.splittype(url)[1])
-        connect = httplib.HTTPConnection(host, timeout=2)
-        connect.request("HEAD", path)
-        response = connect.getresponse()
+        try:
+            connect = httplib.HTTPConnection(host, timeout=2)
+            connect.request("HEAD", path)
+            response = connect.getresponse()
+        except Exception as err:
+            site['delay_boost'] = 300
+            raise Exception('site %s head %s failed: %s' % (site['name'], url, repr(err)))
         if (response.status >= 300 and response.status < 400):
             site['url'] = None # skip checking from now on
             raise Exception('site %s should use url %s (%s)' % (site['name'], response.getheader('Location'), url))

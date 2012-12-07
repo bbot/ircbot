@@ -86,6 +86,11 @@ def _get_threads(board):
                     json_dict = json.loads(resp.read())
                     for j in json_dict['threads'] :
                         # j is the thread, ['posts'][0] is the first post in thread
+                        thread = j['posts'][0]
+                        # ctime = thread creation time
+                        thread['ctime'] = j['posts'][0]['time'] 
+                        # mtime = thread last-modified time
+                        thread['mtime'] = j['posts'][-1]['time']
                         BOARDCACHE[board]['threads'].append(j['posts'][0])
                     resp.close()
                 elif resp.code >= 400:
@@ -101,13 +106,13 @@ def _get_threads(board):
 
 def _cmp_thread_freshness(i, j):
     " for use in list().sort() to order threads fresh to stale "
-    # needs a better heuristic that DOES NOT download every freaking
-    # post of every freaking thread.  I used to use:
-    # ctime + 60 * posts + 60 * images
-    # but this gives too much weight to threads that hit 250 img limit,
-    # which happens every 2.3 hours for homestuck threads on /co/
-    left = i['time']
-    right = j['time']
+    # a heuristic that DOES NOT download every post of every thread
+    if i.get('imagelimit') or i.get('images', 0) < 8:
+        return -1  # i must be less fresh, or too fresh
+    elif j.get('imagelimit') or j.get('images', 0) < 8:
+        return 1   # j must be less fresh, or too fresh
+    left = i['mtime']
+    right = j['mtime']
     return cmp(left, right)
 
 def _get_posts(board, thread_no):
@@ -187,21 +192,13 @@ def tell_4chan_thread(phenny, cmd_in):
     elif (searchconfig['atime'] + cooldown) > now :
         # cooldown hasn't expired; do nothing
         return
-    searchconfig['atime'] = now
 
     board = searchconfig['board']
     regexp = searchconfig['regexp']
-    all_threads = _get_threads(board)
-    good_threads = list()
-    for thread in all_threads:
-        # first check the subjects
-        if regexp.search(thread.get('sub','')):
-            good_threads.append(thread)
-    if not good_threads:
-        # only if no matching subjects, check first post's comment
-        for thread in BOARDCACHE[board]['threads']:
-            if regexp.search(thread.get('com','')) :
-                good_threads.append(thread)
+    threads = _get_threads(board)
+    good_threads = [ i for i in threads if regexp.search(i.get('sub','')) ]
+    if not good_threads :
+        good_threads = [ i for i in threads if regexp.search(i.get('com','')) ]
 
     if good_threads :
         good_threads.sort(cmp=_cmp_thread_freshness)
@@ -234,6 +231,40 @@ tell_4chan_thread.priority = 'medium'
 tell_4chan_thread.thread = True  # I might block on net i/o
 tell_4chan_thread.commands = SEARCHES.keys()
 
+def tell_4chan_allthreads(phenny, cmd_in):
+    """ used by admins for diagnosing problems 
+    with _get_threads and _cmp_thread_freshness
+    """
+    if not cmd_in.admin:
+        return
+    now = time.time()
+    searchconfig = SEARCHES.get(cmd_in.group(1).replace('.all',''))
+    board = searchconfig['board']
+    regexp = searchconfig['regexp']
+
+    phenny.msg(cmd_in.nick, 'searching; board: "%s", regexp: "%s"' % (board, regexp.pattern))
+    threads = _get_threads(board)
+    good_threads = [ i for i in threads if regexp.search(i.get('sub','')) ]
+    if not good_threads :
+        good_threads = [ i for i in threads if regexp.search(i.get('com','')) ]
+
+    if good_threads :
+        good_threads.sort(cmp=_cmp_thread_freshness)
+        for the_thread in good_threads :
+            threadurl = THREADURL % (board, the_thread['no'])
+            mesg = threadurl
+            mesg += " \"%s\"" % the_thread.get('sub',"")
+            mesg += " (%s)" % (_secsToPretty(now - the_thread['time']))
+            mesg += " %dp" % (the_thread.get('replies', 0) + 1)
+            mesg += " %di" % (the_thread.get('images', 0) + 1)
+            phenny.msg(cmd_in.nick, mesg)
+        phenny.msg(cmd_in.nick, "search complete")
+    else :
+        phenny.msg(cmd_in.nick, 'nothing found.')
+
+tell_4chan_allthreads.priority = 'low'
+tell_4chan_allthreads.thread = True
+tell_4chan_allthreads.commands = [ c+".all" for c in SEARCHES.keys() ]
 
 # if __name__ == '__main__':
 #  print "--- Testing phenny module"
