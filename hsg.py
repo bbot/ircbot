@@ -7,7 +7,7 @@ This is free and unencumbered software released into the public domain.
 """
 from __future__ import division
 import time, re, json, urllib
-__version__ = '20121128'
+__version__ = '20121208'
 # I'd like to import Mozai's fourchan.py, but I phenny is a bit weird about
 # importing local modules, so I'll copy-paste instead.
 
@@ -15,6 +15,7 @@ __version__ = '20121128'
 # how long between people asking? (0 means ignore, <0 means refuse)
 COOLDOWNS = {
   '#test':15,
+  '#test2':10,
   '#farts':200,
   'lmotep':-1,
 }
@@ -45,6 +46,14 @@ SEARCHES = {
     'board':'cgl',
     'regexp':'homestuck|vriska|nepeta|troll horns',
   },
+  'draw': {
+    'board':'co',
+    'regexp':'drawthread',
+  },
+#  'foo': {
+#    'board':'co',
+#    'regexp':'the',
+#  },
 }
 
 
@@ -182,9 +191,11 @@ def tell_4chan_thread(phenny, cmd_in):
     cooldown = COOLDOWNS.get(cmd_in.sender)
     searchconfig = SEARCHES.get(cmd_in.group(1))
 
-    if (cooldown == None) or (searchconfig == None):
+    if cmd_in.admin :
+        pass
+    elif (cooldown == None) or (searchconfig == None):
         return
-    if cooldown < 0 :
+    elif cooldown < 0 :
         phenny.bot.msg(cmd_in.nick, REFUSETEXT)
         return
     elif cooldown == 0:
@@ -201,7 +212,7 @@ def tell_4chan_thread(phenny, cmd_in):
         good_threads = [ i for i in threads if regexp.search(i.get('com','')) ]
 
     if good_threads :
-        good_threads.sort(cmp=_cmp_thread_freshness)
+        good_threads.sort(cmp=_cmp_thread_freshness, reverse=True)
         the_thread = good_threads[0]
         threadurl = THREADURL % (board, the_thread['no'])
         # -- start time-expensive bit
@@ -212,7 +223,7 @@ def tell_4chan_thread(phenny, cmd_in):
         # -- end time-expensive bit
         mesg = threadurl
         mesg += " \"%s\"" % the_thread.get('sub',"")
-        mesg += " (%s)" % (_secsToPretty(now - the_thread['time']))
+        mesg += " (%s)" % (_secsToPretty(now - the_thread['ctime']))
         mesg += " %dp" % (the_thread.get('replies', 0) + 1)
         mesg += " %di" % (the_thread.get('images', 0) + 1)
         if the_thread.get('bans', 0) > 0 :
@@ -220,6 +231,8 @@ def tell_4chan_thread(phenny, cmd_in):
             mesg += " \x0305 %d bans\x03" % (the_thread['bans'])
         if the_thread.get('ppm') and the_thread['ppm'] > 0.1 :
             mesg += "; %.1f ppm" % the_thread['ppm']
+        else :
+            mesg += "; last post %s ago" % (_secsToPretty(now - the_thread['mtime']))
         searchconfig['atime'] = now
     else:
         mesg = '...'
@@ -249,12 +262,13 @@ def tell_4chan_allthreads(phenny, cmd_in):
         good_threads = [ i for i in threads if regexp.search(i.get('com','')) ]
 
     if good_threads :
-        good_threads.sort(cmp=_cmp_thread_freshness)
+        good_threads.sort(cmp=_cmp_thread_freshness, reverse=True)
         for the_thread in good_threads :
             threadurl = THREADURL % (board, the_thread['no'])
             mesg = threadurl
             mesg += " \"%s\"" % the_thread.get('sub',"")
-            mesg += " (%s)" % (_secsToPretty(now - the_thread['time']))
+            mesg += " (c:%s)" % (_secsToPretty(now - the_thread['ctime']))
+            mesg += " (m:%s)" % (_secsToPretty(now - the_thread['mtime']))
             mesg += " %dp" % (the_thread.get('replies', 0) + 1)
             mesg += " %di" % (the_thread.get('images', 0) + 1)
             phenny.msg(cmd_in.nick, mesg)
