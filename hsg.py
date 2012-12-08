@@ -14,7 +14,7 @@ __version__ = '20121128'
 # -- config
 # how long between people asking? (0 means ignore, <0 means refuse)
 COOLDOWNS = {
-  '#test':15,
+  '#test2':15,
   '#farts':200,
   'lmotep':-1,
 }
@@ -201,7 +201,7 @@ def tell_4chan_thread(phenny, cmd_in):
         good_threads = [ i for i in threads if regexp.search(i.get('com','')) ]
 
     if good_threads :
-        good_threads.sort(cmp=_cmp_thread_freshness)
+        good_threads.sort(cmp=_cmp_thread_freshness, reverse=True)
         the_thread = good_threads[0]
         threadurl = THREADURL % (board, the_thread['no'])
         # -- start time-expensive bit
@@ -212,8 +212,9 @@ def tell_4chan_thread(phenny, cmd_in):
         # -- end time-expensive bit
         mesg = threadurl
         mesg += " \"%s\"" % the_thread.get('sub',"")
-        mesg += " (%s)" % (_secsToPretty(now - the_thread['time']))
-        mesg += " %dp" % (the_thread.get('replies', 0) + 1)
+        mesg += " (c:%s)" % (_secsToPretty(now - the_thread['ctime']))
+	mesg += " (m:%s)" % (_secsToPretty(now - the_thread['mtime']))
+	mesg += " %dp" % (the_thread.get('replies', 0) + 1)
         mesg += " %di" % (the_thread.get('images', 0) + 1)
         if the_thread.get('bans', 0) > 0 :
             # \x0305: mIRC colour code for red foreground
@@ -249,7 +250,7 @@ def tell_4chan_allthreads(phenny, cmd_in):
         good_threads = [ i for i in threads if regexp.search(i.get('com','')) ]
 
     if good_threads :
-        good_threads.sort(cmp=_cmp_thread_freshness)
+        good_threads.sort(cmp=_cmp_thread_freshness, reverse=True)
         for the_thread in good_threads :
             threadurl = THREADURL % (board, the_thread['no'])
             mesg = threadurl
