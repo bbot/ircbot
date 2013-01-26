@@ -39,6 +39,12 @@ SITES = {
             '======= http://mspaintadventures.com/ =======\n' +
             '======= ======= UPDATE UPDATE ======= =======\n'
   },
+  'prequel' : {
+    'name': 'PREQUEL',
+    'url' : 'http://www.prequeladventure.com/feed/',
+    'delay': 300,
+    'mesg': 'Prequel update: http://www.prequeladventure.com/'
+  },
   'sbahj' : {
     'name': 'SBaHJ',
     'url' : ('http://www.mspaintadventures.com/sweetbroandhellajeff/',
