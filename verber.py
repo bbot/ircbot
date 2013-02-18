@@ -30,8 +30,8 @@ def verber(phenny, input):
     now = time.time()
     if (timeout < now):                 #if the timeout is in the past...
         timeout = (now + 10 * 60)       #...add ten minutes and perform the action
-        phenny.action(input.sender, random_line(open('actions.txt')).format(nick, input.group(2)))
-        #The name of the person who invoked the bot is {0} in the template, and the target is {1}
+        phenny.action(input.sender, random_line(open('actions.txt')).format(nick, input.group(2), input.sender))
+        #The name of the person who invoked the bot is {0} in the template, the target is {1}, and the channel is  {2}
     else:
         return #otherwise do nothing
 
