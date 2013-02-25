@@ -26,3 +26,4 @@ if __name__ == '__main__':
   FAKEPHENNY = PhennyFake()
   FAKECMD = CommandInputFake('.thanks')
   thanks(FAKEPHENNY, FAKECMD)
+

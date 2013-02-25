@@ -39,7 +39,7 @@ CACHE_AGELIMIT = 60
 SEARCHES = {
   'hsg': {
     'board':'co',
-    'regexp':'(hom[eo]st?uck|hamsteak) general',
+    'regexp':'(hom[eo]st?uck|hamsteak)',
   },
   'cgl': {
     'board':'cgl',
@@ -96,9 +96,9 @@ def _get_threads(board):
                         # j is the thread, ['posts'][0] is the first post in thread
                         thread = j['posts'][0]
                         # ctime = thread creation time
-                        thread['ctime'] = j['posts'][0]['time'] 
+                        thread['ctime'] = float(j['posts'][0]['time']) 
                         # mtime = thread last-modified time
-                        thread['mtime'] = j['posts'][-1]['time']
+                        thread['mtime'] = float(j['posts'][-1]['time'])
                         BOARDCACHE[board]['threads'].append(j['posts'][0])
                     resp.close()
                 elif resp.code >= 400:
@@ -158,11 +158,11 @@ def _get_posts(board, thread_no):
                 if post.get('filename'):
                     itimes.append(post['time'])
         cent = int(len(ptimes)*.1)
-        centage = ((now - ptimes[-cent]) // 60)
+        centage = ((now - int(ptimes[-cent])) // 60)
         if centage :
             posts[0]['ppm'] = (cent/centage)
         cent = int(len(itimes)*.1)
-        centage = ((now - itimes[-cent]) // 60)
+        centage = ((now - int(itimes[-cent])) // 60)
         if centage :
             posts[0]['ipm'] = (cent/centage)
         THREADCACHE[thread_id] = { 'posts':posts, 'mtime': now }
