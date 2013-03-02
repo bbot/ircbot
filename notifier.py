@@ -45,17 +45,17 @@ SITES = {
     'delay': 300,
     'mesg': 'Prequel update: http://www.prequeladventure.com/'
   },
-  'sbahj' : {
-    'name': 'SBaHJ',
-    'url' : ('http://www.mspaintadventures.com/sweetbroandhellajeff/',
-            r'="(.*?)"><img src="new.jpg"',
-            r'<img src="(archive/.*?)"',
-            ),
-    'delay': 60,
-    'dest': ('#farts','Mozai'),
-    'mesg': '= JESUS DICK ==================hornse==\n' +
-            '=== THERSE A SWEET HELLA UPDTE ======-=\n'
-  },
+#  'sbahj' : {
+#    'name': 'SBaHJ',
+#    'url' : ('http://www.mspaintadventures.com/sweetbroandhellajeff/',
+#            r'="(.*?)"><img src="new.jpg"',
+#            r'<img src="(archive/.*?)"',
+#            ),
+#    'delay': 60,
+#    'dest': ('#farts','Mozai'),
+#    'mesg': '= JESUS DICK ==================hornse==\n' +
+#            '=== THERSE A SWEET HELLA UPDTE ======-=\n'
+#  },
 # TODO: tumblr doesn't do Last-Modified headers, so gotta use RSS
 # instead: get all the <pubdate>, sort them, pluck the most recent,
 # converted it to GMT, and use THAT as the mtime.
