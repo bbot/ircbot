@@ -182,7 +182,7 @@ def _secsToPretty(ticks=0):
     elif (minute > 0):
         return "%dm %ds" % (minute, second)
     else:
-        return "not very"
+        return "not very long"
 
 def tell_4chan_thread(phenny, cmd_in):
     " announces a thread from one of the pre-defined searches "
