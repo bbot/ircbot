@@ -21,7 +21,7 @@ COOLDOWNS = {
 
 # how many catalog pages to fetch. smaller -> faster,
 # but risk missing threads that are sinking.
-PAGELIMIT = 10
+PAGELIMIT = 9
 
 # what to say when refusing
 REFUSETEXT = 'No.'
