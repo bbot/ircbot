@@ -14,7 +14,7 @@ LOOPDELAY = 30
 # after detecting the URL's Last-Modified time has changed, how many
 # checks should be skipped before we start checking again?
 # this will be ( SITES[site]['delay'] * LOOPS_SKIPPED ) seconds.
-LOOPS_SKIPPED = 10
+LOOPS_SKIPPED = 200
 
 # timeout between command responses
 # bots shouldn't spam, even when asked to
