@@ -59,6 +59,9 @@ SEARCHES = {
 # -- init
 API_CATALOG = 'http://api.4chan.org/%s/%d.json' # (board, range(PAGELIMIT))
 API_THREAD = 'http://api.4chan.org/%s/res/%d.json' # (board, thread_no)
+HTML_CATALOG = 'http://boards.4chan.org/%s/catalog' # (board)
+HTML_CATALOG_RE = r'<script[^>]*?type=.?text/javascript.?>\s*var\s+catalog\s*=\s*(.+?)</script>'
+CATALOG_ORDER_TYPES = [ 'absdate', 'date', 'alt', 'r' ]
 THREADURL = 'https://boards.4chan.org/%s/res/%d' # (board, thread_no)
 BOARDCACHE = dict()
 THREADCACHE = dict()
@@ -72,9 +75,99 @@ for s in SEARCHES:
            ):
         raise ValueError('bad data in SEARCHES[%s]; refusing to start' % s)
     SEARCHES[s]['regexp'] = re.compile(SEARCHES[s]['regexp'], re.I)
+HTML_CATALOG_REGEX = re.compile(HTML_CATALOG_RE, re.I)
 
+
+def _timestamp_to_4chantime(thyme):
+    " because sometimes 4chan api forgets to include its datestrings "
+    return time.strftime('%m/%d/%y(%a)%H:%M', time.localtime(float(thyme)))
+
+def _cleanse_posts_list(posts):
+    """ Feb 2013: 4chan API now has inconsistent data types.
+        Strings that match /^[0-9]$/ get turned into integers
+        Some (not all) integers get turned into strings.
+        Fuck, moot; get your shit together.
+    """
+    for i in posts:
+        for j in ['no', 'time', 'resto']:
+            if j in i:
+                i[j] = int(i[j])
+        for j in ['name', 'filename', 'sub', 'com']:
+            if j in i:
+                i[j] = unicode(i[j])
+    return posts
+
+def _cleanse_catalog_order(orderdict):
+    """ sometimes the lists appear as dict instead of list
+        and sometimes the thread ID
+        it may never be fixed because PHP lists act exactly like dicts
+        which makes you wonder how inefficient PHP lists are
+    """
+    for i in CATALOG_ORDER_TYPES:
+        if i not in orderdict:
+            orderdict[i] = orderdict['no']
+        elif isinstance(orderdict[i], dict):
+            newlist = [ orderdict[i][j] for j in sorted(orderdict[i].keys()) ]
+            orderdict[i] = newlist
+        elif isinstance(orderdict[i], list):
+            continue
+        else:
+            raise ValueError("Bad data type for json_dict['order']['%s']: %s" % (i, type(orderdict[i])) )
+    return orderdict
 
 def _get_threads(board):
+    """ given a 4chan subforum id, returns a list of thread-starting posts
+        uses the 4chan Catalog webpages, faster than the JSON API
+    """
+    threads = []
+    sock = urllib.urlopen(HTML_CATALOG % board)
+    if sock.code >= 200 and sock.code < 300:
+        page_content = sock.read() # need it for diagnostics
+        json_string = HTML_CATALOG_REGEX.search(page_content).group(1)
+        json_string = json_string[:json_string.rindex('};')+1]
+        json_dict = json.loads(json_string)
+        json_dict['order']['no'] = sorted(json_dict['threads'].keys())
+        json_dict['order'] = _cleanse_catalog_order(json_dict['order'])
+        threadorder = json_dict['order']['no']
+        if 'alt' in json_dict['order']:
+            threadorder = json_dict['order']['alt']
+        for i in threadorder:
+            try:
+                # Feb 2013: the 'order' lists are integers. but the 'threads'
+                #   object is keyed on strings-of-integer
+                #   LOL PHP DUNTCARE MAGIC TYPE CASTING HERF DERF
+                this_thread = json_dict['threads'][i]
+            except KeyError:
+                if json_dict['threads'].has_key(str(i)):
+                    this_thread = json_dict['threads'][str(i)]
+                elif json_dict['threads'].has_key(unicode(i)):
+                    this_thread = json_dict['threads'][unicode(i)]
+                elif json_dict['threads'].has_key(int(i)):
+                    this_thread = json_dict['threads'][int(i)]
+                else:
+                    raise ValueError("%s is not a valid thread ID" % i)
+            this_thread['board'] = board
+            # now some cooking because the catalog JSON doesn't match the API JSON
+            this_thread['no'] = int(i)
+            this_thread['replies'] = this_thread['r']
+            this_thread['images'] = this_thread['i']
+            this_thread['tim'] = this_thread.get('imgurl','deleted')
+            this_thread['time'] = this_thread['date']
+            this_thread['ctime'] = this_thread['date']
+            this_thread['mtime'] = this_thread['date']
+            this_thread['now'] = _timestamp_to_4chantime(this_thread['date'])
+            this_thread['com'] = this_thread['teaser']
+            this_thread['resto'] = 0
+            threads.append(this_thread)
+    sock.close()
+    if len(threads) == 0:
+        # moot probably broke the catalog. Again.
+        # fall back to fetching all the json for each forum page
+        return _get_threads_api(board)
+    _cleanse_posts_list(threads)
+    return threads
+
+def _get_threads_api(board):
     " returns a list() of posts that start each thread on a 4chan board "
     if ((not board.isalnum()) or (len(board) > 3)) :
         raise ValueError("%s doesn't look like a valid 4chan board id" % board)
