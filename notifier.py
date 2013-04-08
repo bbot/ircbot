@@ -43,7 +43,8 @@ SITES = {
     'name': 'PREQUEL',
     'url' : 'http://www.prequeladventure.com/feed/',
     'delay': 300,
-    'mesg': 'Prequel update: http://www.prequeladventure.com/'
+    'mesg': '++++++++++++++++++++++++++++++++++++++++++++++++\n' +
+            'Prequel update: http://www.prequeladventure.com/\n'
   },
 #  'sbahj' : {
 #    'name': 'SBaHJ',
