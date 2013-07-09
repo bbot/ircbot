@@ -39,7 +39,7 @@ def random_line(afile):
         if random.randrange(num + 2): 
             continue
         line = aline
-    return line
+    return unicode(line) # python2 still has str != unicode
 
 
 def verber_onjoin(phenny, cmd_in):
@@ -120,6 +120,8 @@ def verber(phenny, cmd_in):
     self = phenny.bot.variables['verber']
     nick = cmd_in.nick
     victim = cmd_in.group(2)
+    if not victim:
+      victim = 'nobody'
     chan = cmd_in.sender
     if (not chan.startswith('#')):  # if this is not a real channel...
         return  # ... nah.
