@@ -5,14 +5,18 @@ on neet.tv This version written by Mozai for !!c1Qf, uses 4chan API
 
 This is free and unencumbered software released into the public domain.
 """
-from __future__ import division
-import time, re, json, urllib
-__version__ = '20121208'
+from __future__ import division, print_function
+import httplib, json, re, time
+from urlparse import urlparse
+__version__ = '20130727'
 # I'd like to import Mozai's fourchan.py, but I phenny is a bit weird about
 # importing local modules, so I'll copy-paste instead.
+# 2013-07-27: Cloudflare is blocking python urllib requests
+#             need to cosplay as a human's browser
 
 # -- config
-# how long between people asking? (0 means ignore, <0 means refuse)
+# how many seconds between people asking?
+# (0 means ignore, <0 means refuse. defaults to 60 seconds)
 COOLDOWNS = {
   '#test2':15,
   '#farts':200,
@@ -55,6 +59,12 @@ SEARCHES = {
 #  },
 }
 
+# When Cloudflare asks if we're a bot, this is what we answer
+USER_AGENT = ' '.join(('Mozilla/5.0 (Macintosh; U; Intel Mac OS X; en-ca)',
+                      'AppleWebKit/537+ (KHTML, like Gecko) Version/5.0',
+                      'Safari/537.6+',
+                      'Midori/0.4',
+                     ))
 
 # -- init
 API_CATALOG = 'http://api.4chan.org/%s/%d.json' # (board, range(PAGELIMIT))
@@ -65,6 +75,13 @@ CATALOG_ORDER_TYPES = [ 'absdate', 'date', 'alt', 'r' ]
 THREADURL = 'https://boards.4chan.org/%s/res/%d' # (board, thread_no)
 BOARDCACHE = dict()
 THREADCACHE = dict()
+HTTP_HEADERS = {
+    'User-Agent': USER_AGENT,
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Cache-Control': 'max-age=0',
+    'Accept-Language': 'en-us;q=1.0',
+    'Connection': 'Keep-Alive',
+}
 
 for S in SEARCHES:
     SEARCHES[S].setdefault('atime', 0)
@@ -76,7 +93,6 @@ for s in SEARCHES:
         raise ValueError('bad data in SEARCHES[%s]; refusing to start' % s)
     SEARCHES[s]['regexp'] = re.compile(SEARCHES[s]['regexp'], re.I)
 HTML_CATALOG_REGEX = re.compile(HTML_CATALOG_RE, re.I)
-
 
 def _timestamp_to_4chantime(thyme):
     " because sometimes 4chan api forgets to include its datestrings "
@@ -120,9 +136,12 @@ def _get_threads(board):
         uses the 4chan Catalog webpages, faster than the JSON API
     """
     threads = []
-    sock = urllib.urlopen(HTML_CATALOG % board)
-    if sock.code >= 200 and sock.code < 300:
-        page_content = sock.read() # need it for diagnostics
+    url = urlparse(HTML_CATALOG % board)
+    conn = httplib.HTTPConnection(url.netloc, timeout=5)
+    conn.request('GET', url.path, headers=HTTP_HEADERS)
+    res = conn.getresponse()
+    if res.status >= 200 and res.status < 300:
+        page_content = res.read() # need it for diagnostics
         json_string = HTML_CATALOG_REGEX.search(page_content).group(1)
         json_string = json_string[:json_string.rindex('};')+1]
         json_dict = json.loads(json_string)
@@ -159,10 +178,13 @@ def _get_threads(board):
             this_thread['com'] = this_thread['teaser']
             this_thread['resto'] = 0
             threads.append(this_thread)
-    sock.close()
+    else:
+        print("*** http status %d when trying to fetch %s" % (res.status, url.geturl()))
+    conn.close()
     if len(threads) == 0:
         # moot probably broke the catalog. Again.
         # fall back to fetching all the json for each forum page
+        print("... did not find catalog json in %s ; trying API" % url.geturl())
         return _get_threads_api(board)
     _cleanse_posts_list(threads)
     return threads
@@ -180,11 +202,15 @@ def _get_threads_api(board):
             BOARDCACHE[i]['threads'] = list()
     if len(BOARDCACHE[board]['threads']) == 0 :
         # cache for this board was stale, unused, or useless
+        url = urlparse(API_CATALOG % (board, 0))
+        conn = httplib.HTTPConnection(url.netloc, timeout=5)
         try:
             for i in range(PAGELIMIT):
-                resp = urllib.urlopen(API_CATALOG % (board, i))
-                if resp.code >= 200 and resp.code < 300:
-                    json_dict = json.loads(resp.read())
+                url = urlparse(API_CATALOG % (board, i))
+                conn.request('GET', url.path, headers=HTTP_HEADERS)
+                res = conn.getresponse()
+                if res.status >= 200 and res.status < 300:
+                    json_dict = json.loads(res.read())
                     for j in json_dict['threads'] :
                         # j is the thread, ['posts'][0] is the first post in thread
                         thread = j['posts'][0]
@@ -193,16 +219,20 @@ def _get_threads_api(board):
                         # mtime = thread last-modified time
                         thread['mtime'] = float(j['posts'][-1]['time'])
                         BOARDCACHE[board]['threads'].append(j['posts'][0])
-                    resp.close()
-                elif resp.code >= 400:
-                    # 403 denied, 404 we went beyond the catalog, or 500 server puked.
-                    resp.close()
+                    res.close()
+                else:
+                    if (i > 0 and res.status == 404):
+                        # we just went beyond the pages for that board, no biggie
+                        pass
+                    else:
+                        print("*** bad http status %d for %s" % (res.status, url.geturl()))
+                        res.close()
                     break
         except ValueError:
             # thrown by json.loads() for a HTTP-but-not-JSON response
             # usually safe to ignore; mostly don't want to scare the normals
             # with the shout-out from phenny.bot.error()
-            pass
+            print("*** did not find JSON in %s" % url.geturl())
     return BOARDCACHE[board]['threads']
 
 def _cmp_thread_freshness(i, j):
@@ -233,14 +263,21 @@ def _get_posts(board, thread_no):
     if thread_id not in THREADCACHE :
         THREADCACHE[thread_id] = { 'posts': None, 'mtime': 0 }
         posts = list()
-        sock = urllib.urlopen(API_THREAD % (board, thread_no))
+        url = urlparse(API_THREAD % (board, thread_no))
+        conn = httplib.HTTPConnection(url.netloc, timeout=5)
+        conn.request('GET', url.path, headers=HTTP_HEADERS)
+        res = conn.getresponse()
         try:
-            if sock.code >= 200 and sock.code < 300 :
-                json_dict = json.loads(sock.read())
+            if res.status >= 200 and res.status < 300 :
+                json_dict = json.loads(res.read())
                 posts = json_dict['posts']
+            else:
+                print("*** bad http status %d for url %s" % (res.status, url.geturl()))
+                posts = []
         except ValueError:
-            pass # return empty list if we got a non-JSON response
-        sock.close()
+            print("*** did not get JSON from %s" % url.geturl())
+            # return empty list
+        res.close()
         # start posts-per-minute and images-per-minute
         ptimes = list()
         itimes = list()
@@ -280,17 +317,15 @@ def _secsToPretty(ticks=0):
 def tell_4chan_thread(phenny, cmd_in):
     " announces a thread from one of the pre-defined searches "
     now = time.time()
-    cooldown = COOLDOWNS.get(cmd_in.sender)
+    cooldown = COOLDOWNS.get(cmd_in.sender, 60)
     searchconfig = SEARCHES.get(cmd_in.group(1))
-
+    
     if cmd_in.admin :
         pass
     elif (cooldown == None) or (searchconfig == None):
         return
     elif cooldown < 0 :
         phenny.bot.msg(cmd_in.nick, REFUSETEXT)
-        return
-    elif cooldown == 0:
         return
     elif (searchconfig['atime'] + cooldown) > now :
         # cooldown hasn't expired; do nothing
@@ -372,12 +407,12 @@ tell_4chan_allthreads.priority = 'low'
 tell_4chan_allthreads.thread = True
 tell_4chan_allthreads.commands = [ c+".all" for c in SEARCHES.keys() ]
 
-# if __name__ == '__main__':
-#  print "--- Testing phenny module"
-#  from phennytest import PhennyFake, CommandInputFake
-#  COOLDOWNS['#test'] = 0
-#  FAKEPHENNY = PhennyFake()
-#  for SRCH in SEARCHES:
-#    print "** %s **" % SRCH
-#    FAKECMD = CommandInputFake('.'+SRCH)
-#    tell_4chan_thread(FAKEPHENNY, FAKECMD)
+if __name__ == '__main__':
+    print("--- Testing phenny module")
+    from phennytest import PhennyFake, CommandInputFake
+    COOLDOWNS['#test'] = 0
+    FAKEPHENNY = PhennyFake()
+    for SRCH in SEARCHES:
+        print("** %s **" % SRCH)
+        FAKECMD = CommandInputFake('.'+SRCH)
+        tell_4chan_thread(FAKEPHENNY, FAKECMD)

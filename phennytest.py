@@ -63,6 +63,7 @@ class CommandInputFake(unicode):
     cif = unicode.__new__(cls, text)
     cif.sender = '#test'
     cif.nick = 'self'
+    cif.admin = False
     cif.event = 'PRIVMSG'
     cif.bytes = ':'+text
     cif.match = re.match(cmd_re, text)
