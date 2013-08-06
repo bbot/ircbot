@@ -131,6 +131,8 @@ def verber(phenny, cmd_in):
         bystander = random.choice(list(self.bystanders[chan],))
     except (KeyError, IndexError):
         bystander = nick  # ... unless requester is all alone
+    if ( victim == phenny.bot.nick ):
+        phenny.say('No.')
     now = time.time()
     if (self.timeout < now):  # if the timeout is in the past...
         self.timeout = (now + TIMEOUT_DELAY)  # ...increment timeout
