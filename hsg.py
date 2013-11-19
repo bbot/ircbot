@@ -70,7 +70,9 @@ USER_AGENT = ' '.join(('Mozilla/5.0 (Macintosh; U; Intel Mac OS X; en-ca)',
 API_CATALOG = 'http://api.4chan.org/%s/%d.json' # (board, range(PAGELIMIT))
 API_THREAD = 'http://api.4chan.org/%s/res/%d.json' # (board, thread_no)
 HTML_CATALOG = 'http://boards.4chan.org/%s/catalog' # (board)
-HTML_CATALOG_RE = r'<script[^>]*?type=.?text/javascript.?>\s*var\s+catalog\s*=\s*(.+?)</script>'
+#HTML_CATALOG_RE = r'<script[^>]*?type=.?text/javascript.?>\s*var\s+catalog\s*=\s*(.+?)</script>'
+# 2013-11-07T16:20 changed the api again surprise!
+HTML_CATALOG_RE = r' var catalog = ({.+?};)\s+var style_group'
 CATALOG_ORDER_TYPES = [ 'absdate', 'date', 'alt', 'r' ]
 THREADURL = 'https://boards.4chan.org/%s/res/%d' # (board, thread_no)
 BOARDCACHE = dict()
