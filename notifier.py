@@ -69,6 +69,22 @@ SITES = {
     'url': 'http://mspandrew.tumblr.com/rss',
     'method': 'pubDate'
   }
+  'pxs': {
+    'name': 'Paradox space',
+    'url': 'http://paradoxspace.com/rss.atom',
+    'method': 'published',
+    'dest': '#farts',
+    'mesg': 'Paradox space update\n' +
+            'http://paradoxspace.com/'
+  },
+  'demons': {
+    'name': 'Kill Six Billion Demonds',
+    'url': 'http://killsixbilliondemons.com/?feed=rss2',
+    'method': 'last-modified',
+    'dest': '#farts',
+    'mesg': 'Kill Six Billion Demonds update: http://killsixbilliondemons.com/'
+  }
+
 }
 
 # --- end config
