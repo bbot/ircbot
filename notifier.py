@@ -9,12 +9,12 @@ import httplib, re, rfc822, time, threading, urllib
 # global time between checks & min time between alerts
 # any 'delay' setting in SITES less than this will act as
 # this number anyways.
-LOOPDELAY = 1800  # 30 minutes
+LOOPDELAY = 30  # 30 seconds
 
 # after detecting the URL's Last-Modified time has changed, how many
 # checks should be skipped before we start checking again?
 # this will be ( SITES[site]['delay'] * LOOPS_SKIPPED ) seconds.
-LOOPS_SKIPPED = 12  # 12 * 30 minutes == 6 hours
+LOOPS_SKIPPED = 2880  # 2880 * 30 seconds == 24 hours
 
 # timeout between command responses
 # bots shouldn't spam, even when asked to
