@@ -68,7 +68,7 @@ SITES = {
     'name': 'Hussie\'s tumblr',
     'url': 'http://mspandrew.tumblr.com/rss',
     'method': 'pubDate'
-  }
+  },
   'pxs': {
     'name': 'Paradox space',
     'url': 'http://paradoxspace.com/rss.atom',
