@@ -165,6 +165,10 @@ def _update_siterecord(site):
             mtime = re.search(r'<pubDate>(.*?)</pubDate>', response.read(), re.I | re.S)
             if mtime is not None:
                 mtime = mtime.group(1)
+        if site['method'] == 'published':
+            mtime = re.search(r'<published>(.*?)</published>', response.read(), re.I | re.S)
+            if mtime is not None:
+                mtime = mtime.group(1)
         else:
             mtime = response.getheader('last-modified', None)
         if mtime is None:
