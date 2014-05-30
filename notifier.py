@@ -3,7 +3,7 @@ url_notify.py - Phenny module to check websites for updates
 Rewritten again by Mozai
 This is free and unencumbered software released into the public domain.
 """
-import httplib, re, rfc822, time, threading, urllib
+import email.utils, httplib, re, time, threading, urllib
 
 # -- config
 # global time between checks & min time between alerts
@@ -101,12 +101,37 @@ for SITE in SITES:
     SITES[SITE].setdefault('mesg', "\x02%s has updated\x02" % SITES[SITE]['name'])
 
 
-class OriginFake():
+class OriginFake(object):
     """ this ugly piece of crap is so I can properly do exception
         the Phenny-way without annoying everyone on every channel """
     def __init__(self):
         self.sender = None  # the destination of the exception message
 
+def _parsedate(dstring):
+    " because people are inconsistent about their date strings "
+    # TODO: maybe it's safer if I use a series of regex.search
+    #       to check each format I know before trying to parse it
+    # The RSS 2.0 spec says 'use rfc822' (now RFC2822)
+    dresult = email.utils.parsedate(dstring)
+    if dresult is None and len(dstring) > 8:
+        # ...but the W3C says to use ISO8601, which has multiple valid strings
+        # and the prod env doesn't have iso8601.* nor dateutil.*
+        dmunged = dstring[:10].replace('-', '') + dstring[10:].replace('T', '')
+        dmunged = dmunged.replace(':', '')
+        try:
+            dresult = time.strptime(dmunged[:14], '%Y%m%d%H%M%S')
+            if len(dmunged) == 19:
+                doffset = int(dmunged[15:16]) * 60 * 60 + int(dmunged[17:18]) * 60
+                if dmunged[14] == '+':
+                    dresult = time.localtime(time.mktime(dresult) + doffset)
+                elif dmunged[14] == '-':
+                    dresult = time.localtime(time.mktime(dresult) - doffset)
+        except (ValueError, IndexError):
+            dresult = None
+            raise Exception('Could not parse datestring %s' % dstring)
+    if dresult is not None:
+        dresult = time.mktime(dresult)
+    return dresult
 
 def notify_owner(phenny, mesg):
     " carp to bot's owner, not to the channel "
@@ -135,7 +160,7 @@ def _follow_url_chain(site):
         except Exception as err:
             site['delay_boost'] = 300
             raise Exception('site %s get %s failed: %s' % (site['name'], url, repr(err)))
-        if (response.status >= 300 and response.status < 400):
+        if response.status >= 300 and response.status < 400:
             site['url'] = None  # skip checking from now on
             raise Exception('site %s should use url %s' % (site['name'], response.getheader('Location')))
         match = regexp.search(response.read())
@@ -166,7 +191,7 @@ def _update_siterecord(site):
         (host, path) = urllib.splithost(urllib.splittype(url)[1])
         try:
             connect = httplib.HTTPConnection(host, timeout=2)
-            if site['method'] == 'pubDate':
+            if site['method'] in ('pubDate', 'published'):
                 connect.request("GET", path)
             else:
                 connect.request("HEAD", path)
@@ -174,15 +199,17 @@ def _update_siterecord(site):
         except Exception as err:
             site['delay_boost'] = 300
             raise Exception('site %s head %s failed: %s' % (site['name'], url, repr(err)))
-        if (response.status >= 300 and response.status < 400):
+        if response.status >= 300 and response.status < 400:
             site['url'] = None  # skip checking from now on
             raise Exception('site %s should use url %s (%s)' % (site['name'], response.getheader('Location'), url))
-        if site['method'] == 'pubDate':
-            mtime = re.search(r'<pubDate>(.*?)</pubDate>', response.read(), re.I | re.S)
-            if mtime is not None:
+        responsebody = response.read()
+        if site['method'] in ('pubDate', 'rss'):
+            mtime = re.search(r'<item>.*?<pubDate>(.*?)</pubDate>', responsebody, re.I | re.S)
+            if mtime is not None and mtime.group(1) is not None:
                 mtime = mtime.group(1)
-        if site['method'] == 'published':
-            mtime = re.search(r'<published>(.*?)</published>', response.read(), re.I | re.S)
+                new_mtime = _parsedate(mtime)
+        elif site['method'] in ('published', 'atom'):
+            mtime = re.search(r'<entry>.*?<published>(.*?)</published>', responsebody, re.I | re.S)
             if mtime is not None:
                 mtime = mtime.group(1)
         else:
@@ -190,7 +217,10 @@ def _update_siterecord(site):
         if mtime is None:
             site['url'] = None  # skip checking from now on
             raise Exception('site %s; did not detect last-modify time; url %s' % (site['name'], url))
-        new_mtime = time.mktime(rfc822.parsedate(mtime))
+        new_mtime = _parsedate(mtime)
+        if new_mtime is None:
+            site['url'] = None  # skip checking from now on
+            raise Exception('site %s; mtime not parsable: %s' % (site['name'], mtime))
         if site['mtime'] == 0:
             # we haven't checked yet
             site['mtime'] = new_mtime
