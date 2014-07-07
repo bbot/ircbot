@@ -109,33 +109,6 @@ class OriginFake(object):
     def __init__(self):
         self.sender = None  # the destination of the exception message
 
-ISO8601_re = re.compile(r'(\d\d\d\d)\-?(\d\d)\-?(\d\d)[T ]?(\d\d):?(\d\d):?(\d\d)(\.\d+)?([-+]\d\d(?::\d\d)?)?')
-
-def _parsedate(dstring):
-    " because people are inconsistent about their date strings "
-    # The RSS 2.0 spec says 'use rfc822' (now RFC2822)
-    dresult = email.utils.parsedate(dstring)
-    if dresult is None and ISO8601_re.match(dstring):
-        # ...but the W3C says to use ISO8601, which has many valid strings
-        # 2014-07-03T00:00:00-04:00
-        match = ISO8601_re.match(dstring)
-        dtuple = time.strptime(''.join(match.group(1, 2, 3, 4, 5, 6)), '%Y%m%d%H%M%S')
-        dresult = time.mktime(dtuple)  # assumes dtuple is localtime; it isn't
-        delta = 0
-        if match.group(8):
-             delta = int(match.group(8)[1:3]) * (60 * 60)
-             if(len(match.group(8)) > 3):
-                 delta += int(match.group(8).replace(':', '')[3:5]) * 60
-             if match.group(8)[0] == '-':
-                 delta *= -1
-        delta += time.timezone  # fixes the dtuple localtime assumption
-        if time.daylight:
-            delta += time.altzone
-        dresult = dresult + delta
-    else:
-        dresult = time.mktime(dresult)
-    return dresult
-
 def _parsedate(dstring):
     " because people are inconsistent about their date strings "
     # The RSS 2.0 spec says 'use rfc822' (now RFC2822)
