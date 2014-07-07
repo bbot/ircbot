@@ -78,11 +78,11 @@ SITES = {
             'http://paradoxspace.com/'
   },
   'demons': {
-    'name': 'Kill Six Billion Demonds',
+    'name': 'Kill Six Billion Demons',
     'url': 'http://killsixbilliondemons.com/?feed=rss2',
     'method': 'last-modified',
     'dest': '#farts',
-    'mesg': 'Kill Six Billion Demonds update: http://killsixbilliondemons.com/'
+    'mesg': 'Kill Six Billion Demons update: http://killsixbilliondemons.com/'
   }
 
 }
@@ -107,29 +107,30 @@ class OriginFake(object):
     def __init__(self):
         self.sender = None  # the destination of the exception message
 
+ISO8601_re = re.compile(r'(\d\d\d\d)\-?(\d\d)\-?(\d\d)[T ]?(\d\d):?(\d\d):?(\d\d)(\.\d+)?([-+]\d\d(?::\d\d)?)?')
+
 def _parsedate(dstring):
     " because people are inconsistent about their date strings "
-    # TODO: maybe it's safer if I use a series of regex.search
-    #       to check each format I know before trying to parse it
     # The RSS 2.0 spec says 'use rfc822' (now RFC2822)
     dresult = email.utils.parsedate(dstring)
-    if dresult is None and len(dstring) > 8:
-        # ...but the W3C says to use ISO8601, which has multiple valid strings
-        # and the prod env doesn't have iso8601.* nor dateutil.*
-        dmunged = dstring[:10].replace('-', '') + dstring[10:].replace('T', '')
-        dmunged = dmunged.replace(':', '')
-        try:
-            dresult = time.strptime(dmunged[:14], '%Y%m%d%H%M%S')
-            if len(dmunged) == 19:
-                doffset = int(dmunged[15:16]) * 60 * 60 + int(dmunged[17:18]) * 60
-                if dmunged[14] == '+':
-                    dresult = time.localtime(time.mktime(dresult) + doffset)
-                elif dmunged[14] == '-':
-                    dresult = time.localtime(time.mktime(dresult) - doffset)
-        except (ValueError, IndexError):
-            dresult = None
-            raise Exception('Could not parse datestring %s' % dstring)
-    if dresult is not None:
+    if dresult is None and ISO8601_re.match(dstring):
+        # ...but the W3C says to use ISO8601, which has many valid strings
+        # 2014-07-03T00:00:00-04:00
+        match = ISO8601_re.match(dstring)
+        dtuple = time.strptime(''.join(match.group(1, 2, 3, 4, 5, 6)), '%Y%m%d%H%M%S')
+        dresult = time.mktime(dtuple)  # assumes dtuple is localtime; it isn't
+        delta = 0
+        if match.group(8):
+             delta = int(match.group(8)[1:3]) * (60 * 60)
+             if(len(match.group(8)) > 3):
+                 delta += int(match.group(8).replace(':', '')[3:5]) * 60
+             if match.group(8)[0] == '-':
+                 delta *= -1
+        delta += time.timezone  # fixes the dtuple localtime assumption
+        if time.daylight:
+            delta += time.altzone
+        dresult = dresult + delta
+    else:
         dresult = time.mktime(dresult)
     return dresult
 
