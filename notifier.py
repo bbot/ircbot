@@ -100,6 +100,8 @@ for SITE in SITES:
     SITES[SITE].setdefault('method', 'last-modified')
     SITES[SITE].setdefault('mesg', "\x02%s has updated\x02" % SITES[SITE]['name'])
 
+ISO8601_re = re.compile(r'(\d\d\d\d)\-?(\d\d)\-?(\d\d)[T ]?(\d\d):?(\d\d):?(\d\d)(\.\d+)?([-+]\d\d(?::\d\d)?)?')
+
 
 class OriginFake(object):
     """ this ugly piece of crap is so I can properly do exception
@@ -133,6 +135,32 @@ def _parsedate(dstring):
     else:
         dresult = time.mktime(dresult)
     return dresult
+
+def _parsedate(dstring):
+    " because people are inconsistent about their date strings "
+    # The RSS 2.0 spec says 'use rfc822' (now RFC2822)
+    dresult = email.utils.parsedate(dstring)
+    if dresult is None and ISO8601_re.match(dstring):
+        # ...but the W3C says to use ISO8601, which has many valid strings
+        # 2014-07-03T00:00:00-04:00
+        match = ISO8601_re.match(dstring)
+        dtuple = time.strptime(''.join(match.group(1, 2, 3, 4, 5, 6)), '%Y%m%d%H%M%S')
+        dresult = time.mktime(dtuple)  # assumes dtuple is localtime; it isn't
+        delta = 0
+        if match.group(8):
+             delta = int(match.group(8)[1:3]) * (60 * 60)
+             if(len(match.group(8)) > 3):
+                 delta += int(match.group(8).replace(':', '')[3:5]) * 60
+             if match.group(8)[0] == '-':
+                 delta *= -1
+        delta += time.timezone  # fixes the dtuple localtime assumption
+        if time.daylight:
+            delta += time.altzone
+        dresult = dresult + delta
+    else:
+        dresult = time.mktime(dresult)
+    return dresult
+
 
 def notify_owner(phenny, mesg):
     " carp to bot's owner, not to the channel "
@@ -182,7 +210,7 @@ def _update_siterecord(site):
     # threads checking URLs for update.  ... *shouldn't*
     url = site['url']
     now = time.mktime(time.gmtime(time.time()))  # now BEFORE check
-    if (site['atime'] + site['delay'] + site['delay_boost'] > now):
+    if site['atime'] + site['delay'] + site['delay_boost'] > now:
         # too soon to check again
         return None
     if isinstance(url, (list, tuple)):
@@ -304,11 +332,11 @@ def _secsToPretty(ticks=0):
     day, remain = divmod(ticks, (24 * 60 * 60))
     hour, remain = divmod(remain, (60 * 60))
     minute, second = divmod(remain, 60)
-    if (day > 0):
+    if day > 0:
         return "%dd %dh" % (day, hour)
-    elif (hour > 0):
+    elif hour > 0:
         return "%dh %dm" % (hour, minute)
-    elif (minute > 0):
+    elif minute > 0:
         return "%dm %ds" % (minute, second)
     else:
         return "less than a minute"
@@ -336,15 +364,15 @@ tell_last_update.commands = SITES.keys()
 tell_last_update.thread = False  # don't bother, non-blocking
 tell_last_update.atime = 0
 
-## --
-#
-#def dump_SITES(phenny, cmd_in):
-#  " debug only "
-#  del(phenny) # shut up pylint
-#  if not cmd_in.admin :
-#    return
-#  print("---")
-#  print(repr(SITES))
-#
-#dump_SITES.commands = ['dumpsites',]
-#
+if __name__ == '__main__':
+    print "--- Testing phenny module"
+    from phennytest import PhennyFake, CommandInputFake
+    FAKEPHENNY = PhennyFake()
+    FAKEPHENNY.variables['tell_last_update'] = tell_last_update
+    for SITE in SITES:
+        print "** %s **" % SITES[SITE]['name']
+        _update_siterecord(SITES[SITE])
+        FAKECMD = CommandInputFake('.%s' % SITE)
+        tell_last_update(FAKEPHENNY, FAKECMD)
+        print SITES[SITE]['url']
+        print ""
