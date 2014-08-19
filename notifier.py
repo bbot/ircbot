@@ -14,7 +14,7 @@ LOOPDELAY = 30  # 30 seconds
 # after detecting the URL's Last-Modified time has changed, how many
 # checks should be skipped before we start checking again?
 # this will be ( SITES[site]['delay'] * LOOPS_SKIPPED ) seconds.
-LOOPS_SKIPPED = 2880  # 2880 * 30 seconds == 24 hours
+LOOPS_SKIPPED = 1440  # 1440 * 30 seconds == 12 hours
 
 # timeout between command responses
 # bots shouldn't spam, even when asked to
@@ -39,7 +39,6 @@ SITES = {
     'name': 'MSPA',
     'url': 'http://mspaintadventures.com/rss/rss.xml',
     'method': 'last-modified',
-    'delay': 3600,
     'dest': '#farts',
     'mesg': '======= ======= UPDATE UPDATE ======= =======\n' +
             '======= http://mspaintadventures.com/ =======\n' +
@@ -49,7 +48,6 @@ SITES = {
     'name': 'PREQUEL',
     'url': 'http://www.prequeladventure.com/feed/',
     'method': 'pubDate',
-    'delay': 3600,
     'dest': '#farts',
     'mesg': 'Prequel update: http://www.prequeladventure.com/'
   },
@@ -58,7 +56,6 @@ SITES = {
     'url': ('http://www.mspaintadventures.com/sweetbroandhellajeff/',
       r'="(.*?)"><img src="new.jpg"',
       r'<img src="(archive/.*?)"'),
-    'delay': 3600,
     'method': 'last-modified',
     'dest': ('#farts', 'Mozai'),
     'mesg': '= JESUS DICK ==================hornse==\n' +
