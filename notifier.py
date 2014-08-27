@@ -14,7 +14,7 @@ import email.utils, httplib, re, time, threading, urllib
 LOOPDELAY = 30  # 30 seconds
 
 # after an update, or an error, skip checking for this many seconds
-FREEZEDELAY = 3600  # 1 hour
+FREEZEDELAY = 300  # 10 minutes
 
 # timeout between command responses
 # bots shouldn't spam, even when asked to
@@ -26,13 +26,24 @@ TELLDELAY = 60
 #  'url': 'http://host/path/blah',
 #  'url': ('starting url', regexp to next url, regexpt to next url, ...)
 #  'method': 'last-modified' <- check HTTP header of final http request
-#            'pubDate' <- check <channel><item>[0]<pubDate>
+#            'rss' <- check <channel><item>[0]<pubDate>
+#            'atom' <- check <entry>[0]<published>
+#            'last-url' <- compare found URL with prevous found URL
 #            default is 'last-modified'
 #  'delay': minimum seconds between checks,
 #  'dest': (channels to announce, nicks to notify) ,
 #          defaults to all channels bot was configured to join
-#  'mesg': what to say when alerting. defaults to "\x02${name} has updated\x02"
+#  'mesg': what to say when alerting. defaults to "\x02${name} has updated\x02"\
+#          '%u' in the mesg will be replaced with current found URL
 #  }
+
+# SITES['url'] as a tuple could use more explanation.
+#   if the 'url' field is a tuple, it will fetch the URL in [0],
+#   apply the regexp in [1] to get a new url from the first parenthesized group,
+#   repeat with the regexp in [n+1], etc, resulting in a final URL to use.
+# SITES['last-url'] is used when it's enough to check the URL itself for changes
+#   it is only useful if the ['url'] field is a tuple, explaned above.
+#   otherwise, the resulting last URL will be checked for content as normal.
 
 SITES = {
   'update': {
@@ -47,14 +58,14 @@ SITES = {
   'prequel': {
     'name': 'PREQUEL',
     'url': 'http://www.prequeladventure.com/feed/',
-    'method': 'pubDate',
+    'method': 'rss',
   },
   'sbahj': {
     'name': 'SBaHJ',
     'url': ('http://www.mspaintadventures.com/sweetbroandhellajeff/',
       r'="(.*?)"><img src="new.jpg"',
       r'<img src="(archive/.*?)"'),
-    'method': 'last-modified',
+    'method': 'last-url',
     'dest': '#farts',
     'mesg': '= JESUS \x02DICK\x02 ==================hornse==\n' +
       '=== THERSE A SWEET HELLA UPDTE ======-=\n'
@@ -62,20 +73,29 @@ SITES = {
   'mspandrew': {
     'name': 'Hussie\'s tumblr',
     'url': 'http://mspandrew.tumblr.com/rss',
-    'method': 'pubDate',
+    'method': 'rss',
     'dest': '#farts'
   },
   'pxs': {
     'name': 'Paradox space',
     'url': 'http://paradoxspace.com/rss.atom',
     'dest': '#farts',
-    'method': 'published',
+    'method': 'atom',
   },
   'demons': {
     'name': 'Kill Six Billion Demons',
     'url': 'http://killsixbilliondemons.com/?feed=rss2',
     'method': 'last-modified',
-  }
+  },
+  'sticky': {
+    'name': 'HSG Sticky',
+    'url': ('http://mspa.dumbgarbage.com/hsg/',
+      r'<i class="fa fa-thumb-tack"></i><a href="(/hsg/res/\d+\.html)">'),
+    'method': 'last-url',
+    'dest': '#farts',
+    'delay': 120,
+    'mesg': 'New sticky at dumbgarbage'
+  },
 }
 
 # --- end config
@@ -86,10 +106,16 @@ for SITE in SITES:
     SITES[SITE]['atime'] = 0
     SITES[SITE]['alert'] = False
     SITES[SITE]['error'] = None
+    SITES[SITE]['last-url'] = None
     SITES[SITE].setdefault('name', SITE)
     SITES[SITE].setdefault('delay', LOOPDELAY)
     SITES[SITE].setdefault('method', 'last-modified')
     SITES[SITE].setdefault('mesg', "\x02%s has updated\x02" % SITES[SITE]['name'])
+    if SITES[SITE]['method'] == 'last-url':
+        if not isinstance(SITES[SITE]['url'], (list, tuple)):
+            print '*** ERROR: site config mismatch: %s has method \'last-url\' but \'url\' is not a tuple' % SITE
+            SITES[SITE]['error'] = 'config mismatch: method "last-url" but "url" is not tuple'
+            SITES[SITE]['url'] = None  # prevent checking
 
 ISO8601_re = re.compile(r'(\d\d\d\d)\-?(\d\d)\-?(\d\d)[T ]?(\d\d):?(\d\d):?(\d\d)(\.\d+)?([-+]\d\d(?::\d\d)?)?')
 
@@ -160,6 +186,7 @@ def _follow_url_chain(site):
         except Exception as err:
             site['error'] = repr(err)
             print 'WARN: site %s get %s failed: %s' % (site['name'], url, repr(err))
+            return None
         if response.status >= 300 and response.status < 400:
             site['url'] = None  # skip checking from now on
             site['error'] = 'HTTP response code %d' % response.status
@@ -180,6 +207,7 @@ def _update_siterecord(site):
     # This isn't thread-safe; would be better to get a lock on SITES[site]
     # while I'm doing the update, but there *shouldn't* be multiple
     # threads checking URLs for update.  ... *shouldn't*
+    # 2014 Aug: and now pylint wants me to break this up into multiple functions
     url = site['url']
     if url is None:
         # we marked this as so flawed we should stop checking
@@ -193,19 +221,25 @@ def _update_siterecord(site):
         return None
     if (site['error'] is not None) and (site['atime'] + FREEZEDELAY > now):
         # there's a problem, so check less often
-        print "INFO: not checking %s because: %s" % (site['name'], site['error'].replace("\n", " "))
+        # print "INFO: not checking %s because: %s" % (site['name'], site['error'].replace("\n", " "))
         return None
     site['atime'] = now
     if isinstance(url, (list, tuple)):
-        url = _follow_url_chain(site)
-    if not url:
-        site['error'] = "failed to follow url chain"
-        print "WARN: site %s url chain failed" % (site['name'])
-        return None
+        newurl = _follow_url_chain(site)
+        if not newurl:
+            site['error'] = "failed to follow url chain"
+            print "WARN: site %s url chain failed" % (site['name'])
+            return None
+        if not site['last-url']:
+            site['last-url'] = newurl
+        if site['method'] == 'last-url' and newurl != site['last-url']:
+            site['alert'] = True
+        site['last-url'] = newurl
+        url = newurl
     (host, path) = urllib.splithost(urllib.splittype(url)[1])
     try:
         connect = httplib.HTTPConnection(host, timeout=2)
-        if site['method'] in ('pubDate', 'published'):
+        if site['method'] in ('rss', 'pubDate', 'atom', 'published'):
             connect.request("GET", path)
         else:
             connect.request("HEAD", path)
@@ -249,7 +283,7 @@ def _update_siterecord(site):
     if site['mtime'] == 0:
         # we haven't checked yet
         site['mtime'] = new_mtime
-    if new_mtime != site['mtime']:
+    if new_mtime != site['mtime'] and site['method'] != 'last-url':
         # this also catches it if the URL's Last-Modified jumped backwards
         site['alert'] = True
         site['mtime'] = new_mtime
@@ -272,7 +306,10 @@ def url_notify_loop(phenny):
                     else:
                         targets = phenny.channels
                     for dest in targets:
-                        for line in site['mesg'].split("\n"):
+                        url = site.get('last-url', None) or site['url']
+                        mesg = site['mesg']
+                        mesg = mesg.replace('%u', url)
+                        for line in mesg.split("\n"):
                             phenny.msg(dest, line)
                     site['alert'] = False  # alert no longer pending
             except:
@@ -347,6 +384,8 @@ def tell_last_update(phenny, cmd_in):
     else:
         when_ago = _secsToPretty(now - site['mtime'])
         mesg = "%s updated %s ago" % (site['name'], when_ago)
+        if site['method'] == 'last-url':
+          mesg += " (%s)" % site['last-url']
     if (self.atime + TELLDELAY) <= now:
         phenny.say(mesg)
     else:
