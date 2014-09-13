@@ -2,13 +2,13 @@
 """
 verber.py - Performs emote from a list on demand
 
-.verb [target] : 
+.verb [target] :
   Reads a line from ./actions.txt, replaces {#}, and emotes it
   {0}: name of the invoker
   {1}: string after the invoking command
-  {2}: channel it was invoked in 
+  {2}: channel it was invoked in
   {3}: random name of person in that channel
-  Includes a 10 minute timeout to prevent abuse. 
+  Includes a 10 minute timeout to prevent abuse.
 
 .verbreset :
   if owner or admin says this, resets the .verb timeout
@@ -17,14 +17,16 @@ verber.py - Performs emote from a list on demand
 .refreshwho #channel :
   forces the bot to fetch the userlist for that channel
   to make sure {3} in actions is populated.
-  useful after you use .reload to live-update this module 
+  useful after you use .reload to live-update this module
 
 This is free and unencumbered software released into the public domain.
 """
 
-import random, time
+# TODO: text files are not thread-safe, move to dbm or sqlite
+# TODO: add to action lines who submitted them, and when
+import random, re, time
 
-TIMEOUT_DELAY = 60 * 10 # ten minutes
+TIMEOUT_DELAY = 60 * 10  # ten minutes
 ACTION_FILE = './actions.txt'
 
 
@@ -36,10 +38,13 @@ def random_line(afile):
         raise TypeError('need file or filename')
     line = next(afile)
     for num, aline in enumerate(afile):
-        if random.randrange(num + 2): 
+        if aline.isspace() or aline[0] == '#':
+            continue
+        if random.randrange(num + 2):
             continue
         line = aline
-    return unicode(line) # python2 still has str != unicode
+    afile.close()
+    return unicode(line)  # python2 still has str != unicode
 
 
 def verber_onjoin(phenny, cmd_in):
@@ -63,7 +68,7 @@ def verber_on352(phenny, cmd_in):
     self = phenny.variables['verber']
     chan = cmd_in.args[1]
     who = cmd_in.args[2]
-    if not who[0].isalpha() :  # status symbols like [@%~!]
+    if not who[0].isalpha():  # status symbols like [@%~!]
         who = who[1:]
     if who == phenny.bot.nick:  # don't add myself to bystanders
         return
@@ -80,11 +85,11 @@ def verber_onpart(phenny, cmd_in):
     who = cmd_in.args[3]
     if who == phenny.bot.nick:
         # we're leaving
-        del(self.bystanders[chan])
+        del self.bystanders[chan]
     else:
         self.bystanders.setdefault(chan, set())
         self.bystanders[chan].discard(cmd_in.nick)
-        
+
 verber_onpart.event = 'PART'
 verber_onjoin.rule = r'.'
 
@@ -92,10 +97,10 @@ verber_onjoin.rule = r'.'
 def verber_timeout_reset(phenny, cmd_in):
     "kills the timeout on verber()"
     self = phenny.variables['verber']
-    if cmd_in.admin or cmd_in.owner :  # this is not safe
+    if cmd_in.admin or cmd_in.owner:  # this is not safe
         self.timeout = 0
         phenny.say("timeout reset for .verb")
-                
+
 verber_timeout_reset.commands = ['verbreset']
 verber_timeout_reset.priority = 'low'
 
@@ -107,12 +112,42 @@ def verber_force_bystander_refresh(phenny, cmd_in):
     if not chan.startswith('#'):
         phenny.say("invalid channel name '%s'" % chan)
         return
-    if cmd_in.admin or cmd_in.owner :  # this is not safe
+    if cmd_in.admin or cmd_in.owner:  # this is not safe
         phenny.say("refreshing 'WHO' in %s" % chan)
         self.bystanders[chan] = set()
         phenny.write(('WHO', chan))  # server will respond with '352's
 
 verber_force_bystander_refresh.commands = ['refreshwho']
+
+
+def verber_addline(phenny, cmd_in):
+    "Accept a new phrase/line to add to ACTION_FILE"
+    self = phenny.bot.variables['verber_addline']
+    # nick = cmd_in.nick
+    # if not (cmd_in.admin or cmd_in.owner):
+    #     # only people we trust can add new action lines
+    #     return
+    now = time.time()
+    if self.timeout > now:  # if the timeout isn't here yet...
+        return  # ... do nothing
+    newline = cmd_in.group(2)
+    # need to sanitize for the use of str.format later
+    newline = re.sub(r'{([456789]|\d\d+)}', '(\\1)', newline)
+    newline = re.sub(r'[ \t\n]+', ' ', newline)
+    if newline == '' or newline.isspace():
+        phenny.say(".addverb some new phrase. substitutions: {0} invoker {1} arguments {2} channel {3} random name")
+        self.timeout = (now + 10)  # wait ten seconds before responding
+    else:
+        with open(ACTION_FILE, 'a') as outfile:
+            outfile.write("\n")
+            outfile.write(newline)
+        phenny.say("New verbphrase added.")
+        self.timeout = (now + TIMEOUT_DELAY)  # wait X seconds
+    return
+
+verber_addline.commands = ['addverb']
+verber_addline.thread = False  # appending to text file is not thread-safe
+verber_addline.timeout = 0
 
 
 def verber(phenny, cmd_in):
@@ -121,20 +156,20 @@ def verber(phenny, cmd_in):
     nick = cmd_in.nick
     victim = cmd_in.group(2)
     if not victim:
-      victim = 'nobody'
+        victim = 'nobody'
     chan = cmd_in.sender
-    if (not chan.startswith('#')):  # if this is not a real channel...
+    if not chan.startswith('#'):  # if this is not a real channel...
         return  # ... nah.
-    try: 
+    try:
         bystanders = set(self.bystanders[chan])
         bystanders.discard(nick)  # don't use requester...
         bystander = random.choice(list(self.bystanders[chan],))
     except (KeyError, IndexError):
         bystander = nick  # ... unless requester is all alone
-    if ( victim == phenny.bot.nick ):
+    if victim == phenny.bot.nick:
         phenny.say('No.')
     now = time.time()
-    if (self.timeout < now):  # if the timeout is in the past...
+    if self.timeout < now:  # if the timeout is in the past...
         self.timeout = (now + TIMEOUT_DELAY)  # ...increment timeout
         line = random_line(ACTION_FILE).format(nick, victim, chan, bystander)
         phenny.say('\x01ACTION %s\x01' % line)  # this is /me
