@@ -222,14 +222,14 @@ def verber_addline(phenny, cmd_in):
     newline = cmd_in.group(2)
     # need to sanitize for the use of str.format later
     if newline is None or newline == '' or newline.isspace():
-        phenny.msg(cmd_in.nick, ".%s some new phrase. substitutions: {0} invoker {1} arguments {2} channel {3} random name" % cmd_in.group(1))
+        phenny.say(cmd_in.nick, ".%s some new phrase. substitutions: {0} invoker {1} arguments {2} channel {3} random name" % cmd_in.group(1))
         return
     newline = re.sub(r'[ \t\n]+', ' ', newline)
     newline = re.sub(r'{([456789]|\d\d+)}', '(\\1)', newline)
     if action.append_to_file(newline):
-        phenny.msg(cmd_in.nick, "%s: Added." % action.addcmd)
+        phenny.say(cmd_in.nick, "%s: Added." % action.addcmd)
     else:
-        phenny.msg(cmd_in.nick, "%s: Couldn't add." % action.addcmd)
+        phenny.say(cmd_in.nick, "%s: Couldn't add." % action.addcmd)
     action.atime += time.time() + 2  # throttling
 
 verber_addline.commands = [j.addcmd for j in ACTIONS]
